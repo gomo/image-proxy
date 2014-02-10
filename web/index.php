@@ -11,6 +11,11 @@ class ImageProxy_Http
   public function __construct($script_path)
   {
     $this->_script_dir = dirname($script_path);
+    if(!is_writable($this->_script_dir))
+    {
+      throw new Exception('['.$this->_script_dir.'] is not writable.');
+    }
+
     include $this->_script_dir.'/config.php';
     foreach($settings as $key => $value)
     {
