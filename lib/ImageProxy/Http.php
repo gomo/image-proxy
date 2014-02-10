@@ -61,7 +61,7 @@ class ImageProxy_Http
     }
 
     //オリジナルデータの取得
-    $data = file_get_contents($this->_protocol.'://'.$this->_server.$org_path);
+    $data = @file_get_contents($this->_protocol.'://'.$this->_server.$org_path);
 
     if($data)
     {
@@ -123,7 +123,7 @@ class ImageProxy_Http
       exec(sprintf($command, $save_path, $width, $height, $save_path));
       $data = file_get_contents($save_path);
     }
-    
+
     return array($data, $content_type);
   }
 
