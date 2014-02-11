@@ -8,6 +8,7 @@ class ImageProxy_Http
   private $_width_var;
   private $_height_var;
   private $_img_dir;
+  private $_cache_interval;
 
   public function __construct($script_path)
   {
@@ -35,9 +36,6 @@ class ImageProxy_Http
   public function execute()
   {
     $request_uri = $_SERVER['REQUEST_URI'];
-
-    //etag生成
-    $etag = md5($this->_protocol.'://'.$this->_server.$request_uri);
 
     //保存先の相対パスを作る
     //例えば
@@ -97,12 +95,10 @@ class ImageProxy_Http
       //保存
       list($data, $content_type) = $this->_save($data, $save_path, $width, $height);
 
-      $interval = 604800;
-      header( "Expires: " . gmdate( "D, d M Y H:i:s", time() + $interval ) . " GMT" );
-      header( "Cache-Control: max-age=" . $interval);
-      header( "Pragma: cache");
+      //86400は24時間
+      header("Cache-Control: private, max-age=" . 86400);
+      header("Pragma: cache");
       header('Content-Type: '. $content_type);
-      header('Etag: '.$etag);
       echo $data;
     }
     else
