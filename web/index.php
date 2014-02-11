@@ -7,20 +7,22 @@ class ImageProxy_Http
   private $_size_regex;
   private $_width_var;
   private $_height_var;
+  private $_img_dir;
 
   public function __construct($script_path)
   {
     $this->_script_dir = dirname($script_path);
-    if(!is_writable($this->_script_dir))
-    {
-      throw new Exception('['.$this->_script_dir.'] is not writable.');
-    }
 
     include $this->_script_dir.'/config.php';
     foreach($settings as $key => $value)
     {
       $name = '_'.$key;
       $this->$name = $value;
+    }
+
+    if(!is_writable('./'.$this->_img_dir))
+    {
+      throw new Exception('[./'.$this->_img_dir.'] is not writable.');
     }
   }
 
@@ -37,25 +39,34 @@ class ImageProxy_Http
     //etag生成
     $etag = md5($this->_protocol.'://'.$this->_server.$request_uri);
 
-    //保存対象となる$web_pathを生成
-    $web_path = null;
+    //保存先の相対パスを作る
+    //例えば
+    //ドキュメントルートが/home/sites/www/expample.com/web
+    //このスクリプトが/home/sites/www/expample.com/web/img/index.php
+    //画像の保存ディレクトリが/home/sites/www/expample.com/web/img/files
+    //リクエストURLがhttp://www.expample.com/img/files/path/to/sample.jpgだったとして
+    //元画像のパスは/path/to/sample.jpg
+    //画像キャッシュ保存パスは相対パスで./files/path/to/sample.jpg
+    $save_path = null;
     for ($i=0; $i < strlen($this->_script_dir); $i++) 
     {
       $dir = substr($this->_script_dir, $i);
       if(strpos($request_uri, $dir) === 0)
       {
-        $web_path = str_replace($dir, '', $request_uri);
+        $save_path = substr($request_uri, strlen($dir));
         break;
       }
     }
 
-    if(!$web_path)
+    if(!$save_path)
     {
-      $this->_reaponse404();
+      $save_path = $request_uri;
     }
 
+    $save_path = '.'.$save_path;
+
     //オリジナルデータのパス
-    $org_path = $web_path;
+    $org_path = substr($save_path, strlen('./'.$this->_img_dir));
 
     //サイズの指定があるか
     $width = null;
@@ -83,7 +94,6 @@ class ImageProxy_Http
     if($data)
     {
       //保存
-      $save_path = $this->_script_dir.$web_path;
       list($data, $content_type) = $this->_save($data, $save_path, $width, $height);
 
       $interval = 604800;

@@ -9,4 +9,5 @@ $settings = array(
   'size_regex' => '/^(w|h)([0-9]+)_/u',
   'width_var' => 'w',
   'height_var' => 'h',
+  'img_dir' => 'files',
 );
