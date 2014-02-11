@@ -53,3 +53,11 @@ $settings = array(
 
 リサイズ機能を利用する場合[Image Magick](http://www.imagemagick.org/script/index.php)がサーバーにインストールしてある必要があります。画像形式は`jpeg` `png` `gif`で動作確認を行っています。
 
+
+### キャッシュ画像の掃除
+
+30日以上アクセスのなかった画像を削除するコマンドです。
+
+```shell
+find /path/to/doc-root/img/files -type f -atime +30 -delete
+```
