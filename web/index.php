@@ -72,7 +72,8 @@ class ImageProxy_Http
     $width = null;
     $height = null;
     $filename = basename($org_path);
-    if(preg_match($this->_size_regex, $filename, $matches))
+
+    if($this->_size_regex && preg_match($this->_size_regex, $filename, $matches))
     {
       if(strtolower($matches[1]) == $this->_width_var)
       {
@@ -106,7 +107,7 @@ class ImageProxy_Http
     }
     else
     {
-      $this->_reaponse404();
+      header("HTTP/1.0 404 Not Found");
     }
   }
 
@@ -123,41 +124,32 @@ class ImageProxy_Http
     if($width || $height)
     {
       //拡大はしない
-      if($raw_width < $width || $raw_height < $height)
+      if($raw_width > $width && $raw_height > $height)
       {
-        unlink($save_path);
-        $this->_reaponse404();
-      }
+        if(!$width)
+        {
+          $width = (int) ($raw_width * ($height / $raw_height));
+        }
+        else if(!$height)
+        {
+          $height = (int) ($raw_height * ($raw_width / $width)); 
+        }
 
-      if(!$width)
-      {
-        $width = (int) ($raw_width * ($height / $raw_height));
-      }
-      else if(!$height)
-      {
-        $height = (int) ($raw_height * ($raw_width / $width)); 
-      }
+        if(preg_match('/\.gif$/u', $save_path))
+        {
+          $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+        }
+        else
+        {
+          $command = 'convert %s -resize %dx%d %s';
+        }
 
-      if(preg_match('/\.gif$/u', $save_path))
-      {
-        $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+        exec(sprintf($command, $save_path, $width, $height, $save_path));
+        $data = file_get_contents($save_path);
       }
-      else
-      {
-        $command = 'convert %s -resize %dx%d %s';
-      }
-
-      exec(sprintf($command, $save_path, $width, $height, $save_path));
-      $data = file_get_contents($save_path);
     }
 
     return array($data, $content_type);
-  }
-
-  private function _reaponse404()
-  {
-    header("HTTP/1.0 404 Not Found");
-    die();
   }
 
   private function _mkdir($path)
