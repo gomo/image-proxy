@@ -51,5 +51,5 @@ $settings = array(
 
 ### リサイズと依存関係
 
-リサイズ機能を利用する場合[Image Magick](http://www.imagemagick.org/script/index.php)がサーバーにインストールしてある必要があります。画像形式は`jpeg` `png` `git`で動作確認を行っています。
+リサイズ機能を利用する場合[Image Magick](http://www.imagemagick.org/script/index.php)がサーバーにインストールしてある必要があります。画像形式は`jpeg` `png` `gif`で動作確認を行っています。
 
