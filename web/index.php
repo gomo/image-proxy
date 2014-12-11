@@ -14,7 +14,7 @@ class ImageProxy_Http
   {
     $this->_script_dir = dirname($script_path);
 
-    include $this->_script_dir.'/config.php';
+    include 'config.php';
     foreach($settings as $key => $value)
     {
       $name = '_'.$key;
@@ -175,5 +175,5 @@ class ImageProxy_Http
   }
 }
 
-$ip = new ImageProxy_Http(__FILE__);
+$ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
 $ip->execute();
