@@ -118,9 +118,6 @@ class ImageProxy_Http
       //保存
       list($data, $content_type) = $this->_save($data, $save_path, $width, $height);
 
-      //86400は24時間
-      header("Cache-Control: private, max-age=" . 86400);
-      header("Pragma: cache");
       header('Content-Type: '. $content_type);
       echo $data;
     }
@@ -134,11 +131,13 @@ class ImageProxy_Http
   {
     $this->_mkdir(dirname($save_path));
     file_put_contents($save_path, $data);
+    chmod($save_path, 0777);
 
     $size = getimagesize($save_path);
     list($raw_width, $raw_height,,) = $size;
     $content_type = $size['mime'];
 
+    $need_reload = false;
     //リサイズ
     if($width || $height)
     {
@@ -164,9 +163,33 @@ class ImageProxy_Http
         }
 
         exec(sprintf($command, $save_path, $width, $height, $save_path));
-        $data = file_get_contents($save_path);
+        $need_reload = true;
       }
     }
+
+
+    //ロスレス圧縮
+    if($content_type == 'image/jpeg')
+    {
+      if(shell_exec('which jpegtran'))
+      {
+        $tmp_path = $save_path.'tmp';
+        exec(sprintf(
+          'jpegtran -copy none -optimize -outfile %s %s && cp %s %s && rm %s',
+          $tmp_path, $save_path,
+          $tmp_path, $save_path,
+          $tmp_path
+        ));
+        $need_reload = true;
+      }
+    }
+
+    if($need_reload)
+    {
+      $data = file_get_contents($save_path);
+    }
+
+
 
     return array($data, $content_type);
   }
