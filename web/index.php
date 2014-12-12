@@ -197,6 +197,20 @@ class ImageProxy_Http
         $need_reload = true;
       }
     }
+    else if($content_type == 'image/gif')
+    {
+      if(shell_exec('which gifsicle'))
+      {
+        $tmp_path = $save_path.'tmp';
+        exec(sprintf(
+          'gifsicle -O2 %s > %s && cp %s %s && rm %s',
+          $save_path, $tmp_path,
+          $tmp_path, $save_path,
+          $tmp_path
+        ));
+        $need_reload = true;
+      }
+    }
 
     if($need_reload)
     {
