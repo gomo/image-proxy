@@ -119,6 +119,7 @@ class ImageProxy_Http
       list($data, $content_type) = $this->_save($data, $save_path, $width, $height);
 
       header('Content-Type: '. $content_type);
+      header('Content-Length: '. strlen($data));
       echo $data;
     }
     else
@@ -167,7 +168,6 @@ class ImageProxy_Http
       }
     }
 
-
     //ロスレス圧縮
     if($content_type == 'image/jpeg')
     {
@@ -177,6 +177,20 @@ class ImageProxy_Http
         exec(sprintf(
           'jpegtran -copy none -optimize -outfile %s %s && cp %s %s && rm %s',
           $tmp_path, $save_path,
+          $tmp_path, $save_path,
+          $tmp_path
+        ));
+        $need_reload = true;
+      }
+    }
+    else if($content_type == 'image/png')
+    {
+      if(shell_exec('which pngcrush'))
+      {
+        $tmp_path = $save_path.'tmp';
+        exec(sprintf(
+          'pngcrush -l 9 -rem alla -reduce %s %s && cp %s %s && rm %s',
+          $save_path, $tmp_path,
           $tmp_path, $save_path,
           $tmp_path
         ));
