@@ -36,7 +36,6 @@ class ImageProxy_Http
   public function execute()
   {
     $request_uri = $_SERVER['REQUEST_URI'];
-
     //保存先の相対パスを作る
     //例えば
     //ドキュメントルートが/home/sites/www/expample.com/web
@@ -65,6 +64,30 @@ class ImageProxy_Http
 
     //オリジナルデータのパス
     $org_path = substr($save_path, strlen('./'.$this->_img_dir));
+
+    if(is_array($this->_server))
+    {
+      //serverのキー
+      $paths = explode('/', $org_path);
+      $server_key = $paths[1];
+      
+      if(!isset($this->_server[$server_key]))
+      {
+        header("HTTP/1.0 404 Not Found");
+        return;
+      }
+
+      $org_path = substr($org_path, strlen('/'.$server_key));
+      $this->server = $this->_server[$server_key];
+    }
+
+    //protocolがseverに含まれてる場合
+    if(preg_match('@^(https?)://([^/]+)@', $this->server, $matches))
+    {
+      $this->_protocol = $matches[1];
+      $this->_server = $matches[2];
+    }
+
 
     //サイズの指定があるか
     $width = null;
