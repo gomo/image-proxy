@@ -78,16 +78,23 @@ class ImageProxy_Http
       }
 
       $org_path = substr($org_path, strlen('/'.$server_key));
-      $this->server = $this->_server[$server_key];
+
+      if(isset($this->_server[$server_key]['headers']))
+      {
+        $this->_headers = $this->_server[$server_key]['headers'];
+      }
+
+      $this->_server = $this->_server[$server_key]['base'];
     }
 
+
+
     //protocolがseverに含まれてる場合
-    if(preg_match('@^(https?)://([^/]+)@', $this->server, $matches))
+    if(preg_match('@^(https?)://([^/]+)@', $this->_server, $matches))
     {
       $this->_protocol = $matches[1];
       $this->_server = $matches[2];
     }
-
 
     //サイズの指定があるか
     $width = null;
@@ -110,8 +117,29 @@ class ImageProxy_Http
       $org_path = dirname($org_path).'/'.$filename;
     }
 
-    //オリジナルデータの取得
-    $data = @file_get_contents($this->_protocol.'://'.$this->_server.$org_path);
+    $data = null;
+    if(isset($this->_headers))
+    {
+      $header = '';
+      foreach($this->_headers as $key => $value)
+      {
+        $header .= $key.": ".$value."\r\n";
+      }
+
+      $opts = array(
+        'http' => array(
+          'header' => $header
+        )
+      );
+
+      $context = stream_context_create($opts);
+      $data = file_get_contents($this->_protocol.'://'.$this->_server.$org_path, false, $context);
+    }
+    else
+    {
+      //オリジナルデータの取得
+      $data = file_get_contents($this->_protocol.'://'.$this->_server.$org_path);
+    }
 
     if($data)
     {
