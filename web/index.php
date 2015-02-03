@@ -47,6 +47,11 @@ class ImageProxy_Http
     $save_path = null;
     for ($i=0; $i < strlen($this->_script_dir); $i++) 
     {
+      // /home/sites/www/expample.com/web/img
+      //                                 /img/files/path/to/sample.jpg
+      //上を左側から削っていき、下の頭と一致した時点で、その部分を下のパスから取り除く
+      //例の場合`/files/path/to/sample.jpg`が取得される
+      //つまり、このスクリプトからの相対パスを作る。
       $dir = substr($this->_script_dir, $i);
       if(strpos($request_uri, $dir) === 0)
       {
@@ -61,6 +66,7 @@ class ImageProxy_Http
     }
 
     $save_path = '.'.$save_path;
+
 
     //オリジナルデータのパス
     $org_path = substr($save_path, strlen('./'.$this->_img_dir));
@@ -77,19 +83,50 @@ class ImageProxy_Http
         return;
       }
 
-      $org_path = substr($org_path, strlen('/'.$server_key));
-
-      if(isset($this->_server[$server_key]['headers']))
+      //設定を取得
+      $settings = $this->_server[$server_key];
+      if(isset($settings['inherit']))
       {
-        $this->_headers = $this->_server[$server_key]['headers'];
+        if(!isset($this->_server[$settings['inherit']]))
+        {
+          throw new Exception('Missing server setting '.$settings['inherit']);
+        }
+
+        $settings = array_merge($this->_server[$settings['inherit']], $settings);
       }
 
-      $this->_server = $this->_server[$server_key]['base'];
+      $this->_protocol = isset($settings['protocol']) ? $settings['protocol'] : 'http';
+
+      $org_path = substr($org_path, strlen('/'.$server_key));
+
+      if(isset($settings['ip']))
+      {
+        $headers = array(
+          'Host' => $server_key,
+        );
+
+        $this->_server = $settings['ip'];
+      }
+      else
+      {
+        $this->_server = $server_key;
+      }
+      
+    }
+    else //単独サーバー設定設定
+    {
+      //IPの指定有り
+      if($this->_ip)
+      {
+        $headers = array(
+          'Host' => $this->_server,
+        );
+
+        $this->_server = $this->_ip;
+      }
     }
 
-
-
-    //protocolがseverに含まれてる場合
+    //protocolがドメインに含まれてる場合
     if(preg_match('@^(https?)://([^/]+)@', $this->_server, $matches))
     {
       $this->_protocol = $matches[1];
@@ -118,10 +155,10 @@ class ImageProxy_Http
     }
 
     $data = null;
-    if(isset($this->_headers))
+    if(isset($headers))
     {
       $header = '';
-      foreach($this->_headers as $key => $value)
+      foreach($headers as $key => $value)
       {
         $header .= $key.": ".$value."\r\n";
       }

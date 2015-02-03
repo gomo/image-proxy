@@ -7,19 +7,16 @@ $settings = array(
   //画像サーバーのドメイン。プロトコルを含めることも可能。その場合、`protocol`よりもこちらが優先します。
   'server' => 'bucket.s3.amazonaws.com',
 
-  //serverは配列を渡すことも可能。
-  'server' => array(
-    's3' => array(
-      'base' => 'http://127.0.0.1',
-      'headers' => array(//省略可能。元画像リクエスト時にヘッダーに送られます
-        'Host' => 'bucket.s3.amazonaws.com'
-      ),
-    ),
-  ),
+  //サーバーのIPアドレス。省略するとDNSが利用されます。
+  'ip' => '127.0.0.1', 
 
-  //省略可能。元画像リクエスト時にヘッダーに送られます
-  'headers' => array(
-    'Host' => 'bucket.s3.amazonaws.com',
+  //serverは配列を渡すことも可能。配列の場合、キーにないドメインは404が返されます。
+  'server' => array(
+    'bucket.s3.amazonaws.com' => array(
+      'ip' => '127.0.0.1',     //省略可能。省略時はDNSを利用する
+      'protocol' => 'http',    //省略可能。省略時は`http`
+      'inherit' => 'default',  //他の設定を継承できる
+    ),
   ),
 
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
