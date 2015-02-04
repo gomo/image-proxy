@@ -14,6 +14,7 @@ class ImageProxy_Http
   private $_server_settings;
   private $_width;
   private $_height;
+  private $_is_debug = false;
 
   public function __construct($script_path)
   {
@@ -29,6 +30,13 @@ class ImageProxy_Http
     if(!is_writable('./'.$this->_img_dir))
     {
       throw new Exception('[./'.$this->_img_dir.'] is not writable.');
+    }
+
+    if(array_key_exists('debug', $_GET))
+    {
+      $this->_is_debug = true;
+      ini_set('display_errors', 1);
+      ini_set('error_reporting', E_ALL);
     }
   }
 
@@ -47,6 +55,11 @@ class ImageProxy_Http
    */
   private function _detectSavePath($request_uri)
   {
+    if($_SERVER['QUERY_STRING'])
+    {
+      $request_uri = str_replace('?'.$_SERVER['QUERY_STRING'], '', $request_uri);
+    }
+
     $save_path = null;
     for ($i=0; $i < strlen($this->_script_dir); $i++)
     {
@@ -84,6 +97,11 @@ class ImageProxy_Http
     $paths = explode('/', $tmp_path);
     $domain = $paths[1];
 
+    if($this->_is_debug)
+    {
+      $this->_echoStringLine('Domain: %s', $domain);
+    }
+
     //オリジンパスを抽出
     $org_path = substr($tmp_path, strlen('/'.$domain));
 
@@ -94,16 +112,20 @@ class ImageProxy_Http
       if(strtolower($matches[1]) == $this->_width_var)
       {
         $this->_width = $matches[2];
+        if($this->_is_debug) $this->_echoStringLine('Width: %s', $this->_width);
       }
       else if(strtolower($matches[1]) == $this->_height_var)
       {
         $this->_height = $matches[2];
+        if($this->_is_debug) $this->_echoStringLine('Height: %s', $this->_height);
       }
 
       //サイズ指定がある場合$org_pathから取り除く
       $filename = substr($filename, strlen($matches[0]));
       $org_path = dirname($org_path).'/'.$filename;
     }
+
+    if($this->_is_debug) $this->_echoStringLine('Origin: %s', $org_path);
 
     return array($domain, $org_path);
   }
@@ -133,6 +155,14 @@ class ImageProxy_Http
     }
 
     $this->_server_settings = $settings;
+
+    if($this->_is_debug)
+    {
+      foreach($this->_server_settings as $key => $value)
+      {
+        $this->_echoStringLine('Server setting %s: %s', $key, $value);
+      }
+    }
 
     return true;
   }
@@ -165,11 +195,16 @@ class ImageProxy_Http
         )
       );
 
+      if($this->_is_debug) $this->_echoStringLine('Build stream context header `%s`', $opts['http']['header']);
+
       $context = stream_context_create($opts);
       $domain = $ip;
     }
 
-    return file_get_contents($this->_getServerValue('protocol', 'http').'://'.$domain.$org_path, false, $context);
+    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path;
+    if($this->_is_debug) $this->_echoStringLine('Try to load image from %s', $url);
+
+    return @file_get_contents($url, false, $context);
   }
 
   /**
@@ -192,7 +227,10 @@ class ImageProxy_Http
       $domain = $ip;
     }
 
-    curl_setopt($ch, CURLOPT_URL, $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path);
+    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path;
+    curl_setopt($ch, CURLOPT_URL, $url);
+
+    if($this->_is_debug) $this->_echoStringLine('Loaded header form %s', $url);
 
     //リクエストする
     $header_str = @curl_exec($ch);
@@ -220,6 +258,14 @@ class ImageProxy_Http
       }
     }
 
+    if($this->_is_debug)
+    {
+      foreach($headers as $key => $value)
+      {
+        $this->_echoStringLine('Header %s: %s', $key, $value);
+      }
+    }
+
     if(strpos($headers['Status'], '404 Not Found') !== false)
     {
       return false;
@@ -233,6 +279,24 @@ class ImageProxy_Http
     return true;
   }
 
+  private function _echoStringLine()
+  {
+    $args = func_get_args();
+    $first_arg = $args[0];
+    unset($args[0]);
+
+    if($args)
+    {
+      $value = vsprintf($first_arg, $args);
+    }
+    else
+    {
+      $value = $first_arg;
+    }
+
+    echo $value.' <br>'.PHP_EOL;
+  }
+
   /**
    * メインのエントリーメソッド。ここが起動されます。
    */
@@ -241,12 +305,25 @@ class ImageProxy_Http
     //ファイルの保存パス
     $save_path = $this->_detectSavePath($_SERVER['REQUEST_URI']);
 
+    if($this->_is_debug)
+    {
+      $this->_echoStringLine('Save path: %s', $save_path);
+    }
+
     //オリジナルデータのパスとドメイン
     list($domain, $org_path) = $this->_detectOriginPath($save_path);
 
     if(!$this->_loadServerValues($domain))
     {
-      header("HTTP/1.0 404 Not Found");
+      if($this->_is_debug)
+      {
+        $this->_echoStringLine('404: Missing server setting for %s', $domain);
+      }
+      else
+      {
+        header("HTTP/1.0 404 Not Found");
+      }
+
       return;
     }
 
@@ -264,14 +341,27 @@ class ImageProxy_Http
           if(!$this->_existsFileInServer($domain, $org_path))
           {
             unlink($save_path);
-            header("HTTP/1.0 404 Not Found");
+
+            if($this->_is_debug)
+            {
+              $this->_echoStringLine('404: Origin file is not exists.');
+            }
+            else
+            {
+              header("HTTP/1.0 404 Not Found");
+            }
+
             return;
           }
         }
       }
 
+
       $data = file_get_contents($save_path);
       $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)));
+
+      if($this->_is_debug) $this->_echoStringLine('Loaded image from local server.');
+
       return;
     }
 
@@ -279,7 +369,15 @@ class ImageProxy_Http
     $data = $this->_loadImageFromServer($domain, $org_path);
     if(!$data)
     {
-      header("HTTP/1.0 404 Not Found");
+      if($this->_is_debug)
+      {
+        $this->_echoStringLine('404: Fail to load image from origin.');
+      }
+      else
+      {
+        header("HTTP/1.0 404 Not Found");
+      }
+
       return;
     }
 
@@ -291,9 +389,12 @@ class ImageProxy_Http
 
   private function _response($data, $content_type)
   {
-    header('Content-Type: '. $content_type);
-    header('Content-Length: '. strlen($data));
-    echo $data;
+    if(!$this->_is_debug)
+    {
+      header('Content-Type: '. $content_type);
+      header('Content-Length: '. strlen($data));
+      echo $data;
+    }
   }
 
   private function _save($data, $save_path)
