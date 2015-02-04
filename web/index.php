@@ -7,6 +7,7 @@ class ImageProxy_Http
   private $_width_var;
   private $_height_var;
   private $_img_dir;
+  private $_check_interval_sec;
 
   //内部変数
   private $_script_dir;
@@ -47,7 +48,7 @@ class ImageProxy_Http
   private function _detectSavePath($request_uri)
   {
     $save_path = null;
-    for ($i=0; $i < strlen($this->_script_dir); $i++) 
+    for ($i=0; $i < strlen($this->_script_dir); $i++)
     {
       // /home/sites/www/expample.com/web/img
       //                                 /img/files/path/to/sample.jpg
@@ -167,8 +168,69 @@ class ImageProxy_Http
       $context = stream_context_create($opts);
       $domain = $ip;
     }
-    
+
     return file_get_contents($this->_getServerValue('protocol', 'http').'://'.$domain.$org_path, false, $context);
+  }
+
+  /**
+   * 元サーバーの画像が存在するかを返す。
+   * curlを使ってヘッダーのみ取得します。
+   */
+  public function _existsFileInServer($domain, $org_path)
+  {
+    $ch = curl_init();
+
+    curl_setopt($ch, CURLOPT_HEADER, true); //headerも取得
+    curl_setopt($ch, CURLOPT_NOBODY, true); //headerのみ
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);//curl_execでレスポンスを返す
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+
+    //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
+    if($ip = $this->_getServerValue('ip'))
+    {
+      curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
+      $domain = $ip;
+    }
+
+    curl_setopt($ch, CURLOPT_URL, $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path);
+
+    //リクエストする
+    $header_str = @curl_exec($ch);
+    if(!$header_str)
+    {
+      return false;
+    }
+
+    //headerを解析して配列にする
+    $headers = array();
+    foreach (explode("\r\n", $header_str) as $key => $line)
+    {
+      //空行が2行入っているので無駄なのでbreak
+      if(!$line) break;
+
+      //最初の行はステータスコード`:`はありません。
+      if($key === 0)
+      {
+        $headers['Status'] = $line;
+      }
+      else
+      {
+        list($key, $value) = explode(': ', $line);
+        $headers[$key] = $value;
+      }
+    }
+
+    if(strpos($headers['Status'], '404 Not Found') !== false)
+    {
+      return false;
+    }
+
+    if(isset($headers['Content-Length']) && $headers['Content-Length'] === '0')
+    {
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -188,6 +250,31 @@ class ImageProxy_Http
       return;
     }
 
+    //ファイルがローカルに存在したらそれを返す
+    if(file_exists($save_path))
+    {
+      //$this->_check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
+      //元サーバーの画像が`404 Not Found`を返したら404にする
+      if($this->_check_interval_sec !== null)
+      {
+        $lifetime = time() - filemtime($save_path);
+        if($lifetime >  $this->_check_interval_sec)
+        {
+          //元画像がなかったら404
+          if(!$this->_existsFileInServer($domain, $org_path))
+          {
+            unlink($save_path);
+            header("HTTP/1.0 404 Not Found");
+            return;
+          }
+        }
+      }
+
+      $data = file_get_contents($save_path);
+      $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)));
+      return;
+    }
+
     //元サーバーから画像を読み込む
     $data = $this->_loadImageFromServer($domain, $org_path);
     if(!$data)
@@ -199,6 +286,11 @@ class ImageProxy_Http
     //保存
     list($data, $content_type) = $this->_save($data, $save_path);
 
+    $this->_response($data, $content_type);
+  }
+
+  private function _response($data, $content_type)
+  {
     header('Content-Type: '. $content_type);
     header('Content-Length: '. strlen($data));
     echo $data;
@@ -227,7 +319,7 @@ class ImageProxy_Http
         }
         else if(!$this->_height)
         {
-          $this->_height = (int) ($raw_height * ($raw_width / $this->_width)); 
+          $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
         }
 
         if(preg_match('/\.gif$/u', $save_path))
@@ -302,9 +394,9 @@ class ImageProxy_Http
     {
       //階層名を分割
       $dirs = explode('/', $path);
-      
+
       $dir_path = '';
-      
+
       //上の階層から順にディレクトリをチェック＆作成
       foreach($dirs as $dir)
       {
