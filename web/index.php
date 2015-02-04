@@ -33,17 +33,21 @@ class ImageProxy_Http
     return $this;
   }
 
-  public function execute()
+  /**
+   * 保存先の相対パスを作る
+   *
+   * 例えば
+   * ドキュメントルートが/home/sites/www/expample.com/web
+   * このスクリプトが/home/sites/www/expample.com/web/img/index.php
+   * 画像の保存ディレクトリが/home/sites/www/expample.com/web/img/files
+   * リクエストURLがhttp://www.expample.com/img/files/path/to/sample.jpgだったとして
+   * 元画像のパスは/path/to/sample.jpg
+   * 画像キャッシュ保存パスは相対パスで./files/path/to/sample.jpg
+   * @param string $request_uri comment
+   * @return string
+   */
+  private function _detectSavePath($request_uri)
   {
-    $request_uri = $_SERVER['REQUEST_URI'];
-    //保存先の相対パスを作る
-    //例えば
-    //ドキュメントルートが/home/sites/www/expample.com/web
-    //このスクリプトが/home/sites/www/expample.com/web/img/index.php
-    //画像の保存ディレクトリが/home/sites/www/expample.com/web/img/files
-    //リクエストURLがhttp://www.expample.com/img/files/path/to/sample.jpgだったとして
-    //元画像のパスは/path/to/sample.jpg
-    //画像キャッシュ保存パスは相対パスで./files/path/to/sample.jpg
     $save_path = null;
     for ($i=0; $i < strlen($this->_script_dir); $i++) 
     {
@@ -65,8 +69,14 @@ class ImageProxy_Http
       $save_path = $request_uri;
     }
 
-    $save_path = '.'.$save_path;
+    return '.'.$save_path;
+  }
 
+  public function execute()
+  {
+    $request_uri = $_SERVER['REQUEST_URI'];
+
+    $save_path = $this->_detectSavePath($request_uri);
 
     //オリジナルデータのパス
     $org_path = substr($save_path, strlen('./'.$this->_img_dir));
