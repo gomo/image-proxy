@@ -1,14 +1,18 @@
 <?php
 class ImageProxy_Http
 {
-  private $_protocol;
+  //config.phpから変数
   private $_server;
-  private $_script_dir;
   private $_size_regex;
   private $_width_var;
   private $_height_var;
   private $_img_dir;
-  private $_cache_interval;
+
+  //内部変数
+  private $_script_dir;
+  private $_server_settings;
+  private $_width;
+  private $_height;
 
   public function __construct($script_path)
   {
@@ -25,12 +29,6 @@ class ImageProxy_Http
     {
       throw new Exception('[./'.$this->_img_dir.'] is not writable.');
     }
-  }
-
-  public function setServerProtocol($value)
-  {
-    $this->_protocol = $value;
-    return $this;
   }
 
   /**
@@ -72,91 +70,33 @@ class ImageProxy_Http
     return '.'.$save_path;
   }
 
-  public function execute()
+  /**
+   * 保存パスから元画像のドメインとパスを抽出する。
+   * サイズ指定があったらファイル名から取り除きメンバー変数に保存する。
+   * @return array($domain, $origin_path) list($domain, $origin_path)で受け取ると便利
+   */
+  private function _detectOriginPath($save_path)
   {
-    $request_uri = $_SERVER['REQUEST_URI'];
+    $tmp_path = substr($save_path, strlen('./'.$this->_img_dir));
 
-    $save_path = $this->_detectSavePath($request_uri);
+    //ドメイン部分を抽出
+    $paths = explode('/', $tmp_path);
+    $domain = $paths[1];
 
-    //オリジナルデータのパス
-    $org_path = substr($save_path, strlen('./'.$this->_img_dir));
+    //オリジンパスを抽出
+    $org_path = substr($tmp_path, strlen('/'.$domain));
 
-    if(is_array($this->_server))
-    {
-      //serverのキー
-      $paths = explode('/', $org_path);
-      $server_key = $paths[1];
-      
-      if(!isset($this->_server[$server_key]))
-      {
-        header("HTTP/1.0 404 Not Found");
-        return;
-      }
-
-      //設定を取得
-      $settings = $this->_server[$server_key];
-      if(isset($settings['inherit']))
-      {
-        if(!isset($this->_server[$settings['inherit']]))
-        {
-          throw new Exception('Missing server setting '.$settings['inherit']);
-        }
-
-        $settings = array_merge($this->_server[$settings['inherit']], $settings);
-      }
-
-      $this->_protocol = isset($settings['protocol']) ? $settings['protocol'] : 'http';
-
-      $org_path = substr($org_path, strlen('/'.$server_key));
-
-      if(isset($settings['ip']))
-      {
-        $headers = array(
-          'Host' => $server_key,
-        );
-
-        $this->_server = $settings['ip'];
-      }
-      else
-      {
-        $this->_server = $server_key;
-      }
-      
-    }
-    else //単独サーバー設定設定
-    {
-      //IPの指定有り
-      if($this->_ip)
-      {
-        $headers = array(
-          'Host' => $this->_server,
-        );
-
-        $this->_server = $this->_ip;
-      }
-    }
-
-    //protocolがドメインに含まれてる場合
-    if(preg_match('@^(https?)://([^/]+)@', $this->_server, $matches))
-    {
-      $this->_protocol = $matches[1];
-      $this->_server = $matches[2];
-    }
-
-    //サイズの指定があるか
-    $width = null;
-    $height = null;
+    //サイズの指定があったら内部変数に設定しパスから取り除く
     $filename = basename($org_path);
-
     if($this->_size_regex && preg_match($this->_size_regex, $filename, $matches))
     {
       if(strtolower($matches[1]) == $this->_width_var)
       {
-        $width = $matches[2];
+        $this->_width = $matches[2];
       }
       else if(strtolower($matches[1]) == $this->_height_var)
       {
-        $height = $matches[2];
+        $this->_height = $matches[2];
       }
 
       //サイズ指定がある場合$org_pathから取り除く
@@ -164,46 +104,107 @@ class ImageProxy_Http
       $org_path = dirname($org_path).'/'.$filename;
     }
 
-    $data = null;
-    if(isset($headers))
+    return array($domain, $org_path);
+  }
+
+  /**
+   * 元画像サーバーの設定をメンバー変数に読み込む
+   * inheritの解決はここでします。
+   * @return bool 設定がなかった場合false
+   */
+  private function _loadServerValues($domain)
+  {
+    if(!isset($this->_server[$domain]))
     {
-      $header = '';
-      foreach($headers as $key => $value)
+      return false;
+    }
+
+    //設定を取得
+    $settings = $this->_server[$domain];
+    if(isset($settings['inherit']))
+    {
+      if(!isset($this->_server[$settings['inherit']]))
       {
-        $header .= $key.": ".$value."\r\n";
+        throw new Exception('Missing server setting '.$settings['inherit']);
       }
 
+      $settings = array_merge($this->_server[$settings['inherit']], $settings);
+    }
+
+    $this->_server_settings = $settings;
+
+    return true;
+  }
+
+  /**
+   * config.phpの$setting['server']から値を取得する
+   * _loadServerValuesを事前に呼んでおく必要がある。
+   */
+  private function _getServerValue($key, $default = null)
+  {
+    if(isset($this->_server_settings[$key]))
+    {
+      return $this->_server_settings[$key];
+    }
+
+    return $default;
+  }
+
+  /**
+   * 画像データを元サーバーから読み込む
+   */
+  private function _loadImageFromServer($domain, $org_path)
+  {
+    $context = null;
+    if($ip = $this->_getServerValue('ip'))
+    {
       $opts = array(
         'http' => array(
-          'header' => $header
+          'header' => 'Host: '.$domain."\r\n",
         )
       );
 
       $context = stream_context_create($opts);
-      $data = file_get_contents($this->_protocol.'://'.$this->_server.$org_path, false, $context);
+      $domain = $ip;
     }
-    else
-    {
-      //オリジナルデータの取得
-      $data = file_get_contents($this->_protocol.'://'.$this->_server.$org_path);
-    }
-
-    if($data)
-    {
-      //保存
-      list($data, $content_type) = $this->_save($data, $save_path, $width, $height);
-
-      header('Content-Type: '. $content_type);
-      header('Content-Length: '. strlen($data));
-      echo $data;
-    }
-    else
-    {
-      header("HTTP/1.0 404 Not Found");
-    }
+    
+    return file_get_contents($this->_getServerValue('protocol', 'http').'://'.$domain.$org_path, false, $context);
   }
 
-  private function _save($data, $save_path, $width, $height)
+  /**
+   * メインのエントリーメソッド。ここが起動されます。
+   */
+  public function execute()
+  {
+    //ファイルの保存パス
+    $save_path = $this->_detectSavePath($_SERVER['REQUEST_URI']);
+
+    //オリジナルデータのパスとドメイン
+    list($domain, $org_path) = $this->_detectOriginPath($save_path);
+
+    if(!$this->_loadServerValues($domain))
+    {
+      header("HTTP/1.0 404 Not Found");
+      return;
+    }
+
+    //元サーバーから画像を読み込む
+    $data = $this->_loadImageFromServer($domain, $org_path);
+    if(!$data)
+    {
+      header("HTTP/1.0 404 Not Found");
+      return;
+    }
+
+    //保存
+    list($data, $content_type) = $this->_save($data, $save_path);
+
+    header('Content-Type: '. $content_type);
+    header('Content-Length: '. strlen($data));
+    echo $data;
+  }
+
+  private function _save($data, $save_path)
   {
     $this->_mkdir(dirname($save_path));
     file_put_contents($save_path, $data);
@@ -215,18 +216,18 @@ class ImageProxy_Http
 
     $need_reload = false;
     //リサイズ
-    if($width || $height)
+    if($this->_width || $this->_height)
     {
       //拡大はしない
-      if($raw_width > $width && $raw_height > $height)
+      if($raw_width > $this->_width && $raw_height > $this->_height)
       {
-        if(!$width)
+        if(!$this->_width)
         {
-          $width = (int) ($raw_width * ($height / $raw_height));
+          $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
         }
-        else if(!$height)
+        else if(!$this->_height)
         {
-          $height = (int) ($raw_height * ($raw_width / $width)); 
+          $this->_height = (int) ($raw_height * ($raw_width / $this->_width)); 
         }
 
         if(preg_match('/\.gif$/u', $save_path))
@@ -238,7 +239,7 @@ class ImageProxy_Http
           $command = 'convert %s -resize %dx%d %s';
         }
 
-        exec(sprintf($command, $save_path, $width, $height, $save_path));
+        exec(sprintf($command, $save_path, $this->_width, $this->_height, $save_path));
         $need_reload = true;
       }
     }
@@ -291,8 +292,6 @@ class ImageProxy_Http
     {
       $data = file_get_contents($save_path);
     }
-
-
 
     return array($data, $content_type);
   }

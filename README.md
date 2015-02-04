@@ -25,11 +25,14 @@ AWSのS3などに画像をおいた時、転送量を減らすために、別サ
 
 ```php
 $settings = array(
-  //画像サーバーのプロトコル
-  'protocol' => 'http',
-  
-  //画像サーバーのドメイン
-  'server' => 'bucket.s3.amazonaws.com',
+  //元画像のオリジナルサーバーの設定。キーにないドメインは404が返されます。
+  'server' => array(
+    'bucket.s3.amazonaws.com' => array(
+      'ip' => '127.0.0.1',     //省略可能。省略時はDNSを利用する
+      'protocol' => 'http',    //省略可能。省略時は`http`
+      'inherit' => 'default',  //他の設定を継承できる
+    ),
+  ),
 
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
   //拡大はしません。false（に評価される値）を渡すとリサイズしません。
@@ -43,7 +46,7 @@ $settings = array(
 );
 ```
 
-オリジナル画像が`http://bucket.s3.amazonaws.com/path/to/sample.jpg`でアクセス可能な場合、プロキシサーバーでは`/img/files/path/to/sample.jpg`でアクセス可能です。`/img/files/path/to/w120_sample.jpg`で幅120に縮小、`/img/files/path/to/h80_sample.jpg`で高さ80に縮小します。
+オリジナル画像が`http://bucket.s3.amazonaws.com/path/to/sample.jpg`でアクセス可能な場合、プロキシサーバーでは`/bucket.s3.amazonaws.com/img/files/path/to/sample.jpg`でアクセス可能です。`/bucket.s3.amazonaws.com/img/files/path/to/w120_sample.jpg`で幅120に縮小、`/bucket.s3.amazonaws.com/img/files/path/to/h80_sample.jpg`で高さ80に縮小します。
 
 アクセスした画像は全てプロキシサーバーにキャッシュされ、キャッシュされた画像は二度とオリジナルサーバーへは取りに行きません。同じファイル名で別の画像に差し替えるような場合は注意が必要です（そのようなシステムは想定していません。画像毎にURLがユニークになるようなシステムを想定しています）。
 
