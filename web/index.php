@@ -15,6 +15,7 @@ class ImageProxy_Http
   private $_width;
   private $_height;
   private $_is_debug = false;
+  private $_is_nocache = false;
 
   public function __construct($script_path)
   {
@@ -36,6 +37,10 @@ class ImageProxy_Http
     {
       ini_set('display_errors', 1);
       ini_set('error_reporting', E_ALL);
+      if($this->_is_nocache)
+      {
+        $this->_echoStringLine('No cache mode enabled.');
+      }
     }
   }
 
@@ -332,7 +337,7 @@ class ImageProxy_Http
 
 
     //ファイルがローカルに存在したらそれを返す
-    if(file_exists($save_path))
+    if($this->_is_nocache == false && file_exists($save_path))
     {
       //$this->_check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
       //元サーバーの画像が`404 Not Found`を返したら404にする
@@ -341,7 +346,7 @@ class ImageProxy_Http
         $lifetime = time() - filemtime($save_path);
         if($lifetime >  $this->_check_interval_sec)
         {
-          //元画像がなかったら404
+          //元画像がなかった
           if(!$this->_existsFileInServer($domain, $org_path))
           {
             unlink($save_path);
@@ -357,11 +362,12 @@ class ImageProxy_Http
 
             return;
           }
+          else //元画像が存在した
+          {
+            touch($save_path);
+          }
         }
-
-        touch($save_path);
       }
-
 
       $data = file_get_contents($save_path);
       $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)));
@@ -375,6 +381,12 @@ class ImageProxy_Http
     $data = $this->_loadImageFromServer($domain, $org_path);
     if(!$data)
     {
+      if($this->_is_nocache && file_exists($save_path))
+      {
+        //nocacheモードの時はここでファイルが存在することがあるので消しておく。
+        unlink($save_path);
+      }
+
       if($this->_is_debug)
       {
         $this->_echoStringLine('404: Fail to load image from origin.');
