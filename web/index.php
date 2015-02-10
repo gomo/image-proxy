@@ -359,6 +359,8 @@ class ImageProxy_Http
             return;
           }
         }
+
+        touch($save_path);
       }
 
 
