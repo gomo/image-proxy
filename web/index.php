@@ -32,9 +32,8 @@ class ImageProxy_Http
       throw new Exception('[./'.$this->_img_dir.'] is not writable.');
     }
 
-    if(array_key_exists('debug', $_GET))
+    if($this->_is_debug)
     {
-      $this->_is_debug = true;
       ini_set('display_errors', 1);
       ini_set('error_reporting', E_ALL);
     }
