@@ -1,12 +1,6 @@
 #php_flag  display_errors on
 #php_value error_reporting 2047
 
-#86400 = 24H
-<Files ~ "\.(jpe?g|gif|png)$">
-Header set Pragma cache
-Header set Cache-Control private,max-age=86400
-</Files>
-
 RewriteEngine On
 
 RewriteRule ^.*$ index.php [NC,L]

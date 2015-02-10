@@ -8,14 +8,15 @@ class ImageProxy_Http
   private $_height_var;
   private $_img_dir;
   private $_check_interval_sec;
+  private $_headers;
+  private $_is_debug = false;
+  private $_is_nocache = false;
 
   //内部変数
   private $_script_dir;
   private $_server_values;
   private $_width;
   private $_height;
-  private $_is_debug = false;
-  private $_is_nocache = false;
 
   public function __construct($script_path)
   {
@@ -369,8 +370,22 @@ class ImageProxy_Http
         }
       }
 
+      //fileの生成時間がlast modiedになる。
+      //同じファイル名で画像が更新されるということは想定してないため、時間を見比べる必要は無さそうですが、
+      //nocacheモードなどで、元画像を消した時、ブラウザキャッシュを更新したほうがいいと思い、この仕様にしました。
+      $filectime = filectime($save_path);
+      if(isset($_SERVER["HTTP_IF_MODIFIED_SINCE"])){
+        $last_modified_since = strtotime($_SERVER["HTTP_IF_MODIFIED_SINCE"]);
+        if($last_modified_since == $filectime){
+          header("HTTP/1.1 304 Not Modified");
+          return;
+        }
+      }
+
+      //ローカルから画像を読み込む
+      //ローカルの画像が何らかの理由で消されてない限り、この前に304を返します。
       $data = file_get_contents($save_path);
-      $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)));
+      $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)), $filectime);
 
       if($this->_is_debug) $this->_echoStringLine('Loaded image from local server.');
 
@@ -402,15 +417,24 @@ class ImageProxy_Http
     //保存
     list($data, $content_type) = $this->_save($data, $save_path);
 
-    $this->_response($data, $content_type);
+    $this->_response($data, $content_type, filectime($save_path));
   }
 
-  private function _response($data, $content_type)
+  private function _response($data, $content_type, $filectime)
   {
     if(!$this->_is_debug)
     {
       header('Content-Type: '. $content_type);
       header('Content-Length: '. strlen($data));
+      header("Last-Modified: " . date('r', $filectime));
+      if($this->_headers)
+      {
+        foreach($this->_headers as $key => $value)
+        {
+          header($key.': '.$value);
+        }
+      }
+
       echo $data;
     }
   }

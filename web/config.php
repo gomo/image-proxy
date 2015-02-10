@@ -30,4 +30,10 @@ $settings = array(
 
   //ローカル画像を無視して、元サーバーに画像を取りに行き、ローカルの画像を更新します。
   'is_nocache' => true,
+
+  //画像のレスポンスヘッダーを追加できます。
+  'headers' => array(
+    'Pragma' => 'cache',
+    'Cache-Control' => 'max-age='.(60 * 60 * 24),
+  ),
 );
