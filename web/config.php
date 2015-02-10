@@ -4,9 +4,10 @@ $settings = array(
   //元画像のオリジナルサーバーの設定。キーにないドメインは404が返されます。
   'server' => array(
     'bucket.s3.amazonaws.com' => array(
-      'ip' => '127.0.0.1',     //省略可能。省略時はDNSを利用する
-      'protocol' => 'http',    //省略可能。省略時は`http`
-      'inherit' => 'default',  //他の設定を継承できる
+      'ip' => '127.0.0.1',                   //省略可能。省略時はDNSを利用する
+      'domain' => 'bucket.s3.amazonaws.com', //省略可能。省略時はキーが使用される。パス内にドメインを入れたくない時に使用します
+      'protocol' => 'http',                  //省略可能。省略時は`http`
+      'inherit' => 'default',                //他の設定を継承できる
     ),
   ),
 

@@ -11,7 +11,7 @@ class ImageProxy_Http
 
   //内部変数
   private $_script_dir;
-  private $_server_settings;
+  private $_server_values;
   private $_width;
   private $_height;
   private $_is_debug = false;
@@ -95,15 +95,15 @@ class ImageProxy_Http
 
     //ドメイン部分を抽出
     $paths = explode('/', $tmp_path);
-    $domain = $paths[1];
+    $server_name = $paths[1];
 
     if($this->_is_debug)
     {
-      $this->_echoStringLine('Domain: %s', $domain);
+      $this->_echoStringLine('Server name: %s', $server_name);
     }
 
     //オリジンパスを抽出
-    $org_path = substr($tmp_path, strlen('/'.$domain));
+    $org_path = substr($tmp_path, strlen('/'.$server_name));
 
     //サイズの指定があったら内部変数に設定しパスから取り除く
     $filename = basename($org_path);
@@ -127,7 +127,7 @@ class ImageProxy_Http
 
     if($this->_is_debug) $this->_echoStringLine('Origin: %s', $org_path);
 
-    return array($domain, $org_path);
+    return array($server_name, $org_path);
   }
 
   /**
@@ -135,30 +135,30 @@ class ImageProxy_Http
    * inheritの解決はここでします。
    * @return bool 設定がなかった場合false
    */
-  private function _loadServerValues($domain)
+  private function _loadServerValues($server_name)
   {
-    if(!isset($this->_server[$domain]))
+    if(!isset($this->_server[$server_name]))
     {
       return false;
     }
 
     //設定を取得
-    $settings = $this->_server[$domain];
-    if(isset($settings['inherit']))
+    $values = $this->_server[$server_name];
+    if(isset($values['inherit']))
     {
-      if(!isset($this->_server[$settings['inherit']]))
+      if(!isset($this->_server[$values['inherit']]))
       {
-        throw new Exception('Missing server setting '.$settings['inherit']);
+        throw new Exception('Missing server setting '.$values['inherit']);
       }
 
-      $settings = array_merge($this->_server[$settings['inherit']], $settings);
+      $values = array_merge($this->_server[$values['inherit']], $values);
     }
 
-    $this->_server_settings = $settings;
+    $this->_server_values = $values;
 
     if($this->_is_debug)
     {
-      foreach($this->_server_settings as $key => $value)
+      foreach($this->_server_values as $key => $value)
       {
         $this->_echoStringLine('Server setting %s: %s', $key, $value);
       }
@@ -173,9 +173,9 @@ class ImageProxy_Http
    */
   private function _getServerValue($key, $default = null)
   {
-    if(isset($this->_server_settings[$key]))
+    if(isset($this->_server_values[$key]))
     {
-      return $this->_server_settings[$key];
+      return $this->_server_values[$key];
     }
 
     return $default;
@@ -311,13 +311,13 @@ class ImageProxy_Http
     }
 
     //オリジナルデータのパスとドメイン
-    list($domain, $org_path) = $this->_detectOriginPath($save_path);
+    list($server_name, $org_path) = $this->_detectOriginPath($save_path);
 
-    if(!$this->_loadServerValues($domain))
+    if(!$this->_loadServerValues($server_name))
     {
       if($this->_is_debug)
       {
-        $this->_echoStringLine('404: Missing server setting for %s', $domain);
+        $this->_echoStringLine('404: Missing server setting for %s', $server_name);
       }
       else
       {
@@ -326,6 +326,11 @@ class ImageProxy_Http
 
       return;
     }
+
+    //domainはServerValueのdomain、省略されていたらserver_name
+    $domain = $this->_getServerValue('domain', $server_name);
+    if($this->_is_debug) $this->_echoStringLine('Domain: %s', $domain);
+
 
     //ファイルがローカルに存在したらそれを返す
     if(file_exists($save_path))
