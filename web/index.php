@@ -3,7 +3,7 @@ class ImageProxy_Image
 {
   private $_save_path;
 
-  private $_server_name;
+  private $_domain;
   private $_org_path;
   private $_data_path;
   private $_width;
@@ -11,9 +11,19 @@ class ImageProxy_Image
   private $_server_values;
   private $_headers;
   private $_body;
+  private $_is_debug = false;
 
-  public function __construct($save_path, $settings)
+  /**
+   * @param string $save_path ローカルのパス
+   * @param array $settings config.phpの$settings
+   */
+  public function __construct($save_path, array $settings)
   {
+    if(@$settings['is_debug'])
+    {
+      $this->_is_debug = true;
+    }
+
     $this->_save_path = $save_path;
 
     $org_path = $save_path;
@@ -25,10 +35,12 @@ class ImageProxy_Image
       if(strtolower($matches[1]) == @$settings['width_var'])
       {
         $this->_width = $matches[2];
+        if($this->_is_debug) ImageProxy_Http::message('Width: %s', $this->_width);
       }
       else if(strtolower($matches[1]) == @$settings['height_var'])
       {
         $this->_height = $matches[2];
+        if($this->_is_debug) ImageProxy_Http::message('Height: %s', $this->_height);
       }
 
       //サイズ指定がある場合$org_pathから取り除く
@@ -49,12 +61,27 @@ class ImageProxy_Image
     //オリジンパスを抽出
     $org_path = substr($tmp_path, strlen('/'.$server_name));
 
-    $this->_server_name = $server_name;
     $this->_org_path = $org_path;
     $this->_data_path = $data_path;
 
     //設定を取得
     $this->_server_values = $this->_detectServerValues($settings['server'], $server_name);
+
+    //リモートドメインの確定
+    $this->_domain = $this->_getServerValue('domain', $server_name);
+
+    if($this->_is_debug)
+    {
+      ImageProxy_Http::message('Created image');
+      foreach($this->_server_values as $key => $value)
+      {
+        ImageProxy_Http::message('Server %s: %s', $key, $value);
+      }
+
+      ImageProxy_Http::message('Remote domain: %s', $this->_domain);
+      ImageProxy_Http::message('Origin: %s', $this->_org_path);
+      ImageProxy_Http::message('Data: %s', $this->_data_path);
+    }
   }
 
   public function existsOnLocal()
@@ -62,6 +89,10 @@ class ImageProxy_Image
     return file_exists($this->_save_path);
   }
 
+  /**
+   * リモートにファイルが有るかどうかを返す。
+   * 事前に`loadOnlyHeader`か`loadFromRemote`を呼んで置かないと必ずfalseが帰ります。
+   */
   public function existsOnRemote()
   {
     if(!$this->_headers)
@@ -97,11 +128,14 @@ class ImageProxy_Image
 
     //リクエストする
     $header_str = @curl_exec($ch);
+
+    if($this->_is_debug) ImageProxy_Http::message('Load only header');
     $this->_headers = $this->_headerStringToArray($header_str);
   }
 
   public function loadFromLocal()
   {
+    if($this->_is_debug) ImageProxy_Http::message('Load from local');
     $this->_body = file_get_contents($this->_save_path);
   }
 
@@ -110,7 +144,8 @@ class ImageProxy_Image
     $ch = $this->_createCurlHandler();
     $resp = @curl_exec($ch);
 
-    list($header_str, $this->_body) = explode("\r\n\r\n", $resp);
+    if($this->_is_debug) ImageProxy_Http::message('Load from remote');
+    @list($header_str, $this->_body) = explode("\r\n\r\n", $resp);
     $this->_headers = $this->_headerStringToArray($header_str);
   }
 
@@ -298,6 +333,14 @@ class ImageProxy_Image
       }
     }
 
+    if($this->_is_debug)
+    {
+      foreach($headers as $key => $value)
+      {
+        ImageProxy_Http::message('Header %s: %s', $key, $value);
+      }
+    }
+
     return $headers;
   }
 
@@ -333,17 +376,20 @@ class ImageProxy_Image
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
     //domain
-    $domain = $this->_getServerValue('domain', $this->_server_name);
+    $domain = $this->_domain;
 
     //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
     if($ip = $this->_getServerValue('ip'))
     {
       curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
+      if($this->_is_debug) ImageProxy_Http::message('Added header Host: %s to specify ip address', $domain);
       $domain = $ip;
     }
 
     $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$this->_org_path;
     curl_setopt($ch, CURLOPT_URL, $url);
+
+    if($this->_is_debug) ImageProxy_Http::message('Created curl handle for %s', $url);
 
     return $ch;
   }
@@ -395,7 +441,7 @@ class ImageProxy_Http
       ini_set('error_reporting', E_ALL);
       if($this->_getSetting('is_nocache'))
       {
-        $this->_echoStringLine('No cache mode enabled.');
+        ImageProxy_Http::message('No cache mode enabled.');
       }
     }
   }
@@ -444,7 +490,7 @@ class ImageProxy_Http
     return '.'.$save_path;
   }
 
-  private function _echoStringLine()
+  public static function message()
   {
     $args = func_get_args();
     $first_arg = $args[0];
@@ -482,15 +528,10 @@ class ImageProxy_Http
 
     if($this->_getSetting('is_debug'))
     {
-      $this->_echoStringLine('Save path: %s', $save_path);
+      ImageProxy_Http::message('Save path: %s', $save_path);
     }
 
     $image = new ImageProxy_Image($save_path, $this->_settings);
-
-    //domainはServerValueのdomain、省略されていたらserver_name
-    // $domain = $this->_getServerValue('domain', $server_name);
-    // if($this->_getSetting('is_debug')) $this->_echoStringLine('Domain: %s', $domain);
-
 
     //ファイルがローカルに存在したらそれを返す
     if($this->_getSetting('is_nocache') == false && $image->existsOnLocal())
@@ -512,7 +553,7 @@ class ImageProxy_Http
 
             if($this->_getSetting('is_debug'))
             {
-              $this->_echoStringLine('404: Origin file is not exists.');
+              ImageProxy_Http::message('404: Origin file is not exists.');
             }
             else
             {
@@ -538,7 +579,7 @@ class ImageProxy_Http
       $image->loadFromLocal();
       $this->_response($image);
 
-      if($this->_getSetting('is_debug')) $this->_echoStringLine('Loaded image from local server.');
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local server.');
 
       return;
     }
@@ -555,7 +596,7 @@ class ImageProxy_Http
 
       if($this->_getSetting('is_debug'))
       {
-        $this->_echoStringLine('404: Fail to load image from origin.');
+        ImageProxy_Http::message('404: Fail to load image from origin.');
       }
       else
       {
@@ -574,9 +615,9 @@ class ImageProxy_Http
   {
     if($this->_getSetting('is_debug'))
     {
-      $this->_echoStringLine('Response Content-Type: %s', $image->getContentType());
-      $this->_echoStringLine('Response Content-Length: %s', strlen($image->getBody()));
-      $this->_echoStringLine('Response Last-Modified: %s', $image->getLastModified());
+      ImageProxy_Http::message('Response Content-Type: %s', $image->getContentType());
+      ImageProxy_Http::message('Response Content-Length: %s', strlen($image->getBody()));
+      ImageProxy_Http::message('Response Last-Modified: %s', $image->getLastModified());
     }
     else
     {
