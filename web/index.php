@@ -92,23 +92,11 @@ class ImageProxy_Http
   /**
    * 保存パスから元画像のドメインとパスを抽出する。
    * サイズ指定があったらファイル名から取り除きメンバー変数に保存する。
-   * @return array($domain, $origin_path) list($domain, $origin_path)で受け取ると便利
+   * @return array($domain, $origin_path, $data_path) list($domain, $origin_path, $data_path)で受け取ると便利
    */
   private function _detectOriginPath($save_path)
   {
-    $tmp_path = substr($save_path, strlen('./'.$this->_img_dir));
-
-    //ドメイン部分を抽出
-    $paths = explode('/', $tmp_path);
-    $server_name = $paths[1];
-
-    if($this->_is_debug)
-    {
-      $this->_echoStringLine('Server name: %s', $server_name);
-    }
-
-    //オリジンパスを抽出
-    $org_path = substr($tmp_path, strlen('/'.$server_name));
+    $org_path = $save_path;
 
     //サイズの指定があったら内部変数に設定しパスから取り除く
     $filename = basename($org_path);
@@ -130,9 +118,31 @@ class ImageProxy_Http
       $org_path = dirname($org_path).'/'.$filename;
     }
 
+    //元サーバーのタイムスタンプを保存するデータファイルのパス
+    $data_path = $org_path.'.data';
+
+    if($this->_is_debug) $this->_echoStringLine('Data file: %s', $data_path);
+
+    //元サーバーの/からのパスを生成する
+    $tmp_path = substr($org_path, strlen('./'.$this->_img_dir));
+
+    //ドメイン部分を抽出
+    $paths = explode('/', $tmp_path);
+    $server_name = $paths[1];
+
+    if($this->_is_debug)
+    {
+      $this->_echoStringLine('Server name: %s', $server_name);
+    }
+
+    //オリジンパスを抽出
+    $org_path = substr($tmp_path, strlen('/'.$server_name));
+
+
+
     if($this->_is_debug) $this->_echoStringLine('Origin: %s', $org_path);
 
-    return array($server_name, $org_path);
+    return array($server_name, $org_path, $data_path);
   }
 
   /**
@@ -186,64 +196,8 @@ class ImageProxy_Http
     return $default;
   }
 
-  /**
-   * 画像データを元サーバーから読み込む
-   */
-  private function _loadImageFromServer($domain, $org_path)
+  private function _headerStringToArray($header_str)
   {
-    $context = null;
-    if($ip = $this->_getServerValue('ip'))
-    {
-      $opts = array(
-        'http' => array(
-          'header' => 'Host: '.$domain."\r\n",
-        )
-      );
-
-      if($this->_is_debug) $this->_echoStringLine('Build stream context header `%s`', $opts['http']['header']);
-
-      $context = stream_context_create($opts);
-      $domain = $ip;
-    }
-
-    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path;
-    if($this->_is_debug) $this->_echoStringLine('Try to load image from %s', $url);
-
-    return @file_get_contents($url, false, $context);
-  }
-
-  /**
-   * 元サーバーの画像が存在するかを返す。
-   * curlを使ってヘッダーのみ取得します。
-   */
-  public function _existsFileInServer($domain, $org_path)
-  {
-    $ch = curl_init();
-
-    curl_setopt($ch, CURLOPT_HEADER, true); //headerも取得
-    curl_setopt($ch, CURLOPT_NOBODY, true); //headerのみ
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);//curl_execでレスポンスを返す
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-    //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
-    if($ip = $this->_getServerValue('ip'))
-    {
-      curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
-      $domain = $ip;
-    }
-
-    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path;
-    curl_setopt($ch, CURLOPT_URL, $url);
-
-    if($this->_is_debug) $this->_echoStringLine('Loaded header form %s', $url);
-
-    //リクエストする
-    $header_str = @curl_exec($ch);
-    if(!$header_str)
-    {
-      return false;
-    }
-
     //headerを解析して配列にする
     $headers = array();
     foreach (explode("\r\n", $header_str) as $key => $line)
@@ -270,6 +224,69 @@ class ImageProxy_Http
         $this->_echoStringLine('Header %s: %s', $key, $value);
       }
     }
+
+    return $headers;
+  }
+
+  private function _createCurlHandler($domain, $org_path)
+  {
+    $ch = curl_init();
+
+    curl_setopt($ch, CURLOPT_HEADER, true); //headerも取得
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);//curl_execでレスポンスを返す
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+
+    //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
+    if($ip = $this->_getServerValue('ip'))
+    {
+      if($this->_is_debug) $this->_echoStringLine('Added header Host:%s to specify ip address', $domain);
+      curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
+      $domain = $ip;
+    }
+
+    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$org_path;
+    curl_setopt($ch, CURLOPT_URL, $url);
+
+    if($this->_is_debug) $this->_echoStringLine('Created curl handler for %s', $url);
+
+    return $ch;
+  }
+
+  /**
+   * 画像データを元サーバーから読み込む
+   */
+  private function _loadImageFromServer($domain, $org_path)
+  {
+    $ch = $this->_createCurlHandler($domain, $org_path);
+    $resp = @curl_exec($ch);
+    if($this->_is_debug) $this->_echoStringLine('Loaded header and body');
+
+
+    list($header_str, $body) = explode("\r\n\r\n", $resp);
+    $headers = $this->_headerStringToArray($header_str);
+    return $body;
+  }
+
+  /**
+   * 元サーバーの画像が存在するかを返す。
+   * curlを使ってヘッダーのみ取得します。
+   */
+  public function _existsFileInServer($domain, $org_path)
+  {
+    $ch = $this->_createCurlHandler($domain, $org_path);
+    curl_setopt($ch, CURLOPT_NOBODY, true); //headerのみ
+
+    //リクエストする
+    $header_str = @curl_exec($ch);
+    if($this->_is_debug) $this->_echoStringLine('Loaded only header');
+
+    if(!$header_str)
+    {
+      return false;
+    }
+
+    //headerを解析して配列にする
+    $headers = $this->_headerStringToArray($header_str);
 
     if(strpos($headers['Status'], '404 Not Found') !== false)
     {
@@ -316,7 +333,7 @@ class ImageProxy_Http
     }
 
     //オリジナルデータのパスとドメイン
-    list($server_name, $org_path) = $this->_detectOriginPath($save_path);
+    list($server_name, $org_path, $data_path) = $this->_detectOriginPath($save_path);
 
     if(!$this->_loadServerValues($server_name))
     {
@@ -370,22 +387,15 @@ class ImageProxy_Http
         }
       }
 
-      //fileの生成時間がlast modiedになる。
-      //同じファイル名で画像が更新されるということは想定してないため、時間を見比べる必要は無さそうですが、
-      //nocacheモードなどで、元画像を消した時、ブラウザキャッシュを更新したほうがいいと思い、この仕様にしました。
-      $filectime = filectime($save_path);
+      //HTTP_IF_MODIFIED_SINCEが来ていたらブラウザキャシュがあるはずなので304
       if(isset($_SERVER["HTTP_IF_MODIFIED_SINCE"])){
-        $last_modified_since = strtotime($_SERVER["HTTP_IF_MODIFIED_SINCE"]);
-        if($last_modified_since == $filectime){
-          header("HTTP/1.1 304 Not Modified");
-          return;
-        }
+        header("HTTP/1.1 304 Not Modified");
+        return;
       }
 
       //ローカルから画像を読み込む
-      //ローカルの画像が何らかの理由で消されてない限り、この前に304を返します。
       $data = file_get_contents($save_path);
-      $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)), $filectime);
+      $this->_response($data, image_type_to_mime_type(exif_imagetype($save_path)), filectime($save_path));
 
       if($this->_is_debug) $this->_echoStringLine('Loaded image from local server.');
 
