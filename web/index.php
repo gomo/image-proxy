@@ -3,15 +3,34 @@ class ImageProxy_Image
 {
   private $_save_path;
 
+  //元サーバーのドメイン
   private $_domain;
+
+  //サイズ変更のない元画像のローカル保存パス
+  private $_org_save_path;
+
+  //元サーバーのURLパス
   private $_org_path;
+
+  //画像に関する追加情報のテキストファイルのパス
   private $_data_path;
+
+  //横幅のサイズ（縮小有りの場合のみ）
   private $_width;
+
+  //高さのサイズ（縮小有りの場合のみ）
   private $_height;
+
+  //config.php/settings/serverの値の配列
   private $_server_values;
+
+  //元サーバーのレスポンスゲッダー
   private $_headers;
+
+  //画像本体
   private $_body;
   private $_is_debug = false;
+  private $_is_nocache = false;
 
   /**
    * @param string $save_path ローカルのパス
@@ -22,6 +41,11 @@ class ImageProxy_Image
     if(@$settings['is_debug'])
     {
       $this->_is_debug = true;
+    }
+
+    if(@$settings['is_nocache'])
+    {
+      $this->_is_nocache = true;
     }
 
     $this->_save_path = $save_path;
@@ -46,10 +70,17 @@ class ImageProxy_Image
       //サイズ指定がある場合$org_pathから取り除く
       $filename = substr($filename, strlen($matches[0]));
       $org_path = dirname($org_path).'/'.$filename;
+
+      $this->_org_save_path = $org_path;
     }
+    else
+    {
+      $this->_org_save_path = $this->_save_path;
+    }
+    
 
     //元サーバーのタイムスタンプを保存するデータファイルのパス
-    $data_path = $org_path.'.data';
+    $this->_data_path = $org_path.'.data';
 
     //元サーバーの/からのパスを生成する
     $tmp_path = substr($org_path, strlen('./'.$settings['img_dir']));
@@ -59,10 +90,7 @@ class ImageProxy_Image
     $server_name = $paths[1];
 
     //オリジンパスを抽出
-    $org_path = substr($tmp_path, strlen('/'.$server_name));
-
-    $this->_org_path = $org_path;
-    $this->_data_path = $data_path;
+    $this->_org_path = substr($tmp_path, strlen('/'.$server_name));
 
     //設定を取得
     $this->_server_values = $this->_detectServerValues($settings['server'], $server_name);
@@ -72,7 +100,7 @@ class ImageProxy_Image
 
     if($this->_is_debug)
     {
-      ImageProxy_Http::message('Created image');
+      ImageProxy_Http::message('Created ImageProxy_Image');
       foreach($this->_server_values as $key => $value)
       {
         ImageProxy_Http::message('Server %s: %s', $key, $value);
@@ -82,11 +110,6 @@ class ImageProxy_Image
       ImageProxy_Http::message('Origin: %s', $this->_org_path);
       ImageProxy_Http::message('Data: %s', $this->_data_path);
     }
-  }
-
-  public function existsOnLocal()
-  {
-    return file_exists($this->_save_path);
   }
 
   /**
@@ -133,6 +156,12 @@ class ImageProxy_Image
     $this->_headers = $this->_headerStringToArray($header_str);
   }
 
+  public function loadFromOriginLocal()
+  {
+    if($this->_is_debug) ImageProxy_Http::message('Load from origin local');
+    $this->_body = file_get_contents($this->_org_save_path);
+  }
+
   public function loadFromLocal()
   {
     if($this->_is_debug) ImageProxy_Http::message('Load from local');
@@ -159,6 +188,11 @@ class ImageProxy_Image
     return $this->_save_path;
   }
 
+  public function getOriginSavePath()
+  {
+    return $this->_org_save_path;
+  }
+
   public function getContentType()
   {
     $content_type = $this->_getHeader('Content-Type');
@@ -167,9 +201,9 @@ class ImageProxy_Image
       return $content_type;
     }
 
-    if($this->existsOnLocal())
+    if(file_exists($this->_org_save_path))
     {
-      return image_type_to_mime_type(exif_imagetype($this->_save_path));
+      return image_type_to_mime_type(exif_imagetype($this->_org_save_path));
     }
 
     $this->loadOnlyHeader();
@@ -184,7 +218,7 @@ class ImageProxy_Image
       return $last_modified;
     }
 
-    if($this->existsOnLocal())
+    if(file_exists($this->_org_save_path))
     {
       $filectime = filectime($this->_save_path);
       return date('r', $filectime);
@@ -196,18 +230,28 @@ class ImageProxy_Image
 
   public function saveLocal()
   {
-    $this->_mkdir(dirname($this->_save_path));
-    file_put_contents($this->_save_path, $this->_body);
-    chmod($this->_save_path, 0777);
-
-    $size = getimagesize($this->_save_path);
-    list($raw_width, $raw_height,,) = $size;
-    $content_type = $size['mime'];
-
     $need_reload = false;
+
+    //ローカルのリサイズなし画像
+    if(!file_exists($this->_org_save_path))
+    {
+      $this->_mkdir(dirname($this->_org_save_path));
+      file_put_contents($this->_org_save_path, $this->_body);
+      chmod($this->_org_save_path, 0777);
+
+      if($this->_losslessCompress($this->_org_save_path))
+      {
+        $need_reload = true;
+      }
+
+      if($this->_is_debug) ImageProxy_Http::message('Created origin local');
+    }
+
     //リサイズ
     if($this->_width || $this->_height)
     {
+      list($raw_width, $raw_height,,) = getimagesize($this->_org_save_path);
+
       //拡大はしない
       if($raw_width > $this->_width && $raw_height > $this->_height)
       {
@@ -229,11 +273,25 @@ class ImageProxy_Image
           $command = 'convert %s -resize %dx%d %s';
         }
 
-        exec(sprintf($command, $this->_save_path, $this->_width, $this->_height, $this->_save_path));
+        exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
         $need_reload = true;
       }
     }
 
+    if($this->_losslessCompress($this->_save_path))
+    {
+      $need_reload = true;
+    }
+
+    if($need_reload)
+    {
+      $this->_body = file_get_contents($this->_save_path);
+    }
+  }
+
+  private function _losslessCompress($path)
+  {
+    $content_type = $this->getContentType();
     //ロスレス圧縮
     if($content_type == 'image/jpeg')
     {
@@ -242,48 +300,50 @@ class ImageProxy_Image
         $tmp_path = $this->_save_path.'tmp';
         exec(sprintf(
           'jpegtran -copy none -optimize -outfile %s %s && cp %s %s && rm %s',
-          $tmp_path, $this->_save_path,
-          $tmp_path, $this->_save_path,
+          $tmp_path, $path,
+          $tmp_path, $path,
           $tmp_path
         ), $out, $ret);
-        $need_reload = true;
+
+        if($this->_is_debug) ImageProxy_Http::message('jpegtran return '.$ret);
+
+        return true;
       }
     }
     else if($content_type == 'image/png')
     {
       if(shell_exec('which pngcrush'))
       {
-        $tmp_path = $this->_save_path.'tmp';
+        $tmp_path = $path.'tmp';
         exec(sprintf(
           'pngcrush -l 9 -rem alla -reduce %s %s && cp %s %s && rm %s',
-          $this->_save_path, $tmp_path,
-          $tmp_path, $this->_save_path,
+          $path, $tmp_path,
+          $tmp_path, $path,
           $tmp_path
-        ));
-        $need_reload = true;
+        ), $out, $ret);
+
+        if($this->_is_debug) ImageProxy_Http::message('pngcrush return '.$ret);
+
+        return true;
       }
     }
     else if($content_type == 'image/gif')
     {
       if(shell_exec('which gifsicle'))
       {
-        $tmp_path = $this->_save_path.'tmp';
+        $tmp_path = $path.'tmp';
         exec(sprintf(
           'gifsicle -O2 %s > %s && cp %s %s && rm %s',
-          $this->_save_path, $tmp_path,
-          $tmp_path, $this->_save_path,
+          $path, $tmp_path,
+          $tmp_path, $path,
           $tmp_path
-        ));
-        $need_reload = true;
+        ), $out, $ret);
+
+        if($this->_is_debug) ImageProxy_Http::message('gifsicle return '.$ret);
+
+        return true;
       }
     }
-
-    if($need_reload)
-    {
-      $this->_body = file_get_contents($this->_save_path);
-    }
-
-    $this->_headers['Content-Type'] = $content_type;
   }
 
   private function _mkdir($path)
@@ -533,8 +593,8 @@ class ImageProxy_Http
 
     $image = new ImageProxy_Image($save_path, $this->_settings);
 
-    //ファイルがローカルに存在したらそれを返す
-    if($this->_getSetting('is_nocache') == false && $image->existsOnLocal())
+    //ファイルがローカルに存在したら304、あるいは、ローカルから読み込んでを返す
+    if($this->_getSetting('is_nocache') == false && file_exists($image->getSavePath()))
     {
       //check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
       //元サーバーの画像が`404 Not Found`を返したら404にする
@@ -584,8 +644,16 @@ class ImageProxy_Http
       return;
     }
 
-    //元サーバーから画像を読み込む
-    $image->loadFromRemote();
+    //リサイズなし画像をメモリに読み込む。ローカルにあったらそれを読み込む
+    if($this->_getSetting('is_nocache') == false && file_exists($image->getOriginSavePath()))
+    {
+      $image->loadFromOriginLocal();
+    }
+    else
+    {
+      $image->loadFromRemote();
+    }
+
     if(!$image->getBody())
     {
       if($this->_getSetting('is_nocache') && file_exists($save_path))
