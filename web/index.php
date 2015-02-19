@@ -1,4 +1,76 @@
 <?php
+class ImageProxy_Image_Data
+{
+  private $_data_path;
+  private $_data;
+  private $_is_updated = false;
+
+  public function __construct($data_path)
+  {
+    $this->_data_path = $data_path;
+  }
+
+  private function _maybeLoad()
+  {
+    if($this->_data === null)
+    {
+      @include $this->_data_path;
+      if(isset($data))
+      {
+        $this->_data = $data;
+      }
+      else
+      {
+        $this->_data = array();
+      }
+    }
+  }
+
+  public function getDataPath()
+  {
+    return $this->_data_path;
+  }
+
+  public function isUpdated()
+  {
+    return $this->_is_updated;
+  }
+
+  public function save()
+  {
+    if($this->_is_updated)
+    {
+      $code = '<?php $data = '.var_export($this->_data, true).';';
+      file_put_contents($this->_data_path, $code);
+      chmod($this->_data_path, 0777);
+    }
+  }
+
+  public function set($key, $value)
+  {
+    if($this->get($key) != $value)
+    {
+      $this->_is_updated = true;
+      $this->_data[$key] = $value;
+    }
+  }
+
+  public function get($key)
+  {
+    $this->_maybeLoad();
+    if(isset($this->_data[$key]))
+    {
+      return $this->_data[$key];
+    }
+  }
+
+  public function toArray()
+  {
+    $this->_maybeLoad();
+    return $this->_data;
+  }
+}
+
 class ImageProxy_Image
 {
   private $_save_path;
@@ -12,8 +84,8 @@ class ImageProxy_Image
   //元サーバーのURLパス
   private $_org_path;
 
-  //画像に関する追加情報のテキストファイルのパス
-  private $_data_path;
+  //ImageProxy_Image_Data
+  private $_data;
 
   //横幅のサイズ（縮小有りの場合のみ）
   private $_width;
@@ -80,7 +152,7 @@ class ImageProxy_Image
     
 
     //元サーバーのタイムスタンプを保存するデータファイルのパス
-    $this->_data_path = $org_path.'.data';
+    $this->_data = new ImageProxy_Image_Data($org_path.'.php');
 
     //元サーバーの/からのパスを生成する
     $tmp_path = substr($org_path, strlen('./'.$settings['img_dir']));
@@ -108,7 +180,11 @@ class ImageProxy_Image
 
       ImageProxy_Http::message('Remote domain: %s', $this->_domain);
       ImageProxy_Http::message('Origin: %s', $this->_org_path);
-      ImageProxy_Http::message('Data: %s', $this->_data_path);
+      ImageProxy_Http::message('Data path: %s', $this->_data->getDataPath());
+      foreach($this->_data->toArray() as $key => $value)
+      {
+        ImageProxy_Http::message('Data %s: %s', $key, $value);
+      }
     }
   }
 
@@ -178,6 +254,23 @@ class ImageProxy_Image
     $this->_headers = $this->_headerStringToArray($header_str);
   }
 
+  public function needsUpdateLocal()
+  {
+    //新しく読み込んだContent-Lengthと以前のContent-Lengthが違ったら更新
+    if($this->_getHeader('Content-Length') != $this->_data->get('Content-Length'))
+    {
+      return true;
+    }
+
+    //新しく読み込んだContent-Lengthと以前のContent-Lengthが違ったら更新
+    if($this->_getHeader('Last-Modified') != $this->_data->get('Last-Modified'))
+    {
+      return true;
+    }
+
+    return false;
+  }
+
   public function getBody()
   {
     return $this->_body;
@@ -220,7 +313,7 @@ class ImageProxy_Image
 
     if(file_exists($this->_org_save_path))
     {
-      $filectime = filectime($this->_save_path);
+      $filectime = filectime($this->_org_save_path);
       return date('r', $filectime);
     }
 
@@ -243,8 +336,6 @@ class ImageProxy_Image
       {
         $need_reload = true;
       }
-
-      if($this->_is_debug) ImageProxy_Http::message('Created origin local');
     }
 
     //リサイズ
@@ -274,6 +365,7 @@ class ImageProxy_Image
         }
 
         exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
+        chmod($this->_save_path, 0777);
         $need_reload = true;
       }
     }
@@ -287,6 +379,8 @@ class ImageProxy_Image
     {
       $this->_body = file_get_contents($this->_save_path);
     }
+
+    $this->_data->save();
   }
 
   private function _losslessCompress($path)
@@ -390,6 +484,15 @@ class ImageProxy_Image
       {
         list($key, $value) = explode(': ', $line);
         $headers[$key] = $value;
+      }
+    }
+
+    //dataに保存するヘッダー
+    foreach(array('Last-Modified', 'Content-Length', 'Content-Type') as $header_key)
+    {
+      if(isset($headers[$header_key]))
+      {
+        $this->_data->set($header_key, $headers[$header_key]);
       }
     }
 
@@ -606,11 +709,8 @@ class ImageProxy_Http
         {
           $image->loadOnlyHeader();
 
-          //元画像がなかった
-          if(!$image->existsOnRemote())
+          if(!$image->existsOnRemote()) //元画像がなかった
           {
-            unlink($image->getSavePath());
-
             if($this->_getSetting('is_debug'))
             {
               ImageProxy_Http::message('404: Origin file is not exists.');
@@ -622,7 +722,7 @@ class ImageProxy_Http
 
             return;
           }
-          else //元画像が存在した
+          else //元画像が存在して変わってなかった
           {
             touch($image->getSavePath());
           }
