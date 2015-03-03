@@ -34,6 +34,10 @@ $settings = array(
     ),
   ),
 
+  //元画像が更新されているかどうかチェックするインターバル。秒。省略すると元サーバーのチェックはしません。
+  //レスポンスヘッダーの`Last-Modified`, `Content-Length`, `Content-Type`が比較されます。
+  'check_interval_sec' => 10800,
+
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
   //拡大はしません。false（に評価される値）を渡すとリサイズしません。
   'size_regex' => '/^(w|h)([0-9]{1,2}0)_/u',
@@ -48,12 +52,21 @@ $settings = array(
 
 オリジナル画像が`http://bucket.s3.amazonaws.com/path/to/sample.jpg`でアクセス可能な場合、プロキシサーバーでは`/bucket.s3.amazonaws.com/img/files/path/to/sample.jpg`でアクセス可能です。`/bucket.s3.amazonaws.com/img/files/path/to/w120_sample.jpg`で幅120に縮小、`/bucket.s3.amazonaws.com/img/files/path/to/h80_sample.jpg`で高さ80に縮小します。
 
-アクセスした画像は全てプロキシサーバーにキャッシュされ、キャッシュされた画像は二度とオリジナルサーバーへは取りに行きません。同じファイル名で別の画像に差し替えるような場合は注意が必要です（そのようなシステムは想定していません。画像毎にURLがユニークになるようなシステムを想定しています）。
+アクセスした画像は全てプロキシサーバーにキャッシュされますが、`check_interval_sec`毎に更新をチェックします。
 
 ### リサイズと依存関係
 
 リサイズ機能を利用する場合[Image Magick](http://www.imagemagick.org/script/index.php)がサーバーにインストールしてある必要があります。画像形式は`jpeg` `png` `gif`で動作確認を行っています。
 
+### ロスレス圧縮
+
+サーバーに下記のライブラリがインストールしてあった場合はロスレス圧縮をします。
+
+| type | library  | URL |
+| ---- | -------- | --- | 
+| jpeg | jpegtran | http://jpegclub.org/jpegtran/ |
+| png  | pngcrush | http://pngcrush.com/ |
+| gif  | gifsicle | http://www.lcdf.org/gifsicle/ |
 
 ### キャッシュ画像の掃除
 
