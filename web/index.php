@@ -1,9 +1,18 @@
 <?php
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * 画像のヘッダー情報などを保存・取得するクラス
+ * サイズ指定画像、元画像用別々に扱います。一回のリクエストで2つ生成します。
+ * 
+ * @author Masamoto Miyata
+ */
 class ImageProxy_Image_Data
 {
   private $_data_path;
+  private $_loaded_path;
   private $_data;
-  private $_is_updated = false;
+  private $_updated_values = array();
 
   public function __construct($data_path)
   {
@@ -14,14 +23,11 @@ class ImageProxy_Image_Data
   {
     if($this->_data === null)
     {
+      $this->_data = array();
       @include $this->_data_path;
       if(isset($data))
       {
         $this->_data = $data;
-      }
-      else
-      {
-        $this->_data = array();
       }
     }
   }
@@ -31,14 +37,9 @@ class ImageProxy_Image_Data
     return $this->_data_path;
   }
 
-  public function isUpdated()
-  {
-    return $this->_is_updated;
-  }
-
   public function save()
   {
-    if($this->_is_updated)
+    if($this->_updated_values)
     {
       $code = '<?php $data = '.var_export($this->_data, true).';';
       file_put_contents($this->_data_path, $code);
@@ -50,9 +51,19 @@ class ImageProxy_Image_Data
   {
     if($this->get($key) != $value)
     {
-      $this->_is_updated = true;
+      $this->_updated_values[] = $key;
       $this->_data[$key] = $value;
     }
+  }
+
+  public function isUpdated($key)
+  {
+    return in_array($key, $this->_updated_values);
+  }
+
+  public function getUpdatedValues()
+  {
+    return $this->_updated_values;
   }
 
   public function get($key)
@@ -71,6 +82,21 @@ class ImageProxy_Image_Data
   }
 }
 
+
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * 画像を管理するクラス。サイズ指定画像、元画像両方一度に扱います。一回のリクエストで一つしか生成しません。
+ * @author Masamoto Miyata
+ */
 class ImageProxy_Image
 {
   private $_save_path;
@@ -86,6 +112,7 @@ class ImageProxy_Image
 
   //ImageProxy_Image_Data
   private $_data;
+  private $_origin_data;
 
   //横幅のサイズ（縮小有りの場合のみ）
   private $_width;
@@ -98,6 +125,7 @@ class ImageProxy_Image
 
   //元サーバーのレスポンスゲッダー
   private $_headers;
+
 
   //画像本体
   private $_body;
@@ -152,7 +180,8 @@ class ImageProxy_Image
     
 
     //元サーバーのタイムスタンプを保存するデータファイルのパス
-    $this->_data = new ImageProxy_Image_Data($org_path.'.php');
+    $this->_data = new ImageProxy_Image_Data($this->_save_path.'.php');
+    $this->_origin_data = new ImageProxy_Image_Data($this->_org_save_path.'.php');
 
     //元サーバーの/からのパスを生成する
     $tmp_path = substr($org_path, strlen('./'.$settings['img_dir']));
@@ -221,7 +250,6 @@ class ImageProxy_Image
 
   public function loadOnlyHeader()
   {
-    $this->_org_path = $this->_org_path;
     $ch = $this->_createCurlHandler();
     curl_setopt($ch, CURLOPT_NOBODY, true); //headerのみ
 
@@ -254,16 +282,14 @@ class ImageProxy_Image
     $this->_headers = $this->_headerStringToArray($header_str);
   }
 
-  public function needsUpdateLocal()
+  public function needsUpdate()
   {
-    //新しく読み込んだContent-Lengthと以前のContent-Lengthが違ったら更新
-    if($this->_getHeader('Content-Length') != $this->_data->get('Content-Length'))
+    if($this->_data->isUpdated('Content-Length'))
     {
       return true;
     }
 
-    //新しく読み込んだContent-Lengthと以前のContent-Lengthが違ったら更新
-    if($this->_getHeader('Last-Modified') != $this->_data->get('Last-Modified'))
+    if($this->_data->isUpdated('Last-Modified'))
     {
       return true;
     }
@@ -379,8 +405,6 @@ class ImageProxy_Image
     {
       $this->_body = file_get_contents($this->_save_path);
     }
-
-    $this->_data->save();
   }
 
   private function _losslessCompress($path)
@@ -493,14 +517,28 @@ class ImageProxy_Image
       if(isset($headers[$header_key]))
       {
         $this->_data->set($header_key, $headers[$header_key]);
+        $this->_origin_data->set($header_key, $headers[$header_key]);
       }
     }
+
+    $this->_data->save();
+    $this->_origin_data->save();
 
     if($this->_is_debug)
     {
       foreach($headers as $key => $value)
       {
         ImageProxy_Http::message('Header %s: %s', $key, $value);
+      }
+
+      foreach($this->_data->getUpdatedValues() as $key)
+      {
+        ImageProxy_Http::message('Data updated %s', $key);
+      }
+
+      foreach($this->_origin_data->getUpdatedValues() as $key)
+      {
+        ImageProxy_Http::message('Origin Data updated %s', $key);
       }
     }
 
@@ -575,6 +613,22 @@ class ImageProxy_Image
   }
 }
 
+
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * Controllerクラス
+ * `execute()`が起動されます。
+ * @author Masamoto Miyata
+ */
 class ImageProxy_Http
 {
   //config.phpから変数
@@ -585,9 +639,12 @@ class ImageProxy_Http
   private $_server_values;
   private $_width;
   private $_height;
+  private $_time_start;
 
   public function __construct($script_path)
   {
+    $this->_time_start = microtime(true);
+
     $this->_script_dir = dirname($script_path);
 
     include 'config.php';
@@ -686,6 +743,16 @@ class ImageProxy_Http
    */
   public function execute()
   {
+    $this->_execute();
+    if($this->_getSetting('is_debug'))
+    {
+      $time = microtime(true) - $this->_time_start;
+      ImageProxy_Http::message('Time: %01.10f sec', $time);
+    }
+  }
+
+  private function _execute()
+  {
     //ファイルの保存パス
     $save_path = $this->_detectSavePath($_SERVER['REQUEST_URI']);
 
@@ -696,75 +763,76 @@ class ImageProxy_Http
 
     $image = new ImageProxy_Image($save_path, $this->_settings);
 
-    //ファイルがローカルに存在したら304、あるいは、ローカルから読み込んでを返す
-    if($this->_getSetting('is_nocache') == false && file_exists($image->getSavePath()))
+    //ローカルに画像が存在しなかった
+    if(!file_exists($image->getSavePath()))
     {
-      //check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
-      //元サーバーの画像が`404 Not Found`を返したら404にする
-      $check_interval_sec = $this->_getSetting('check_interval_sec');
-      if($check_interval_sec !== null)
+      if($this->_getSetting('is_nocache') == false && file_exists($image->getOriginSavePath()))
       {
-        $lifetime = time() - filemtime($image->getSavePath());
-        if($lifetime >  $check_interval_sec)
-        {
-          $image->loadOnlyHeader();
-
-          if(!$image->existsOnRemote()) //元画像がなかった
-          {
-            if($this->_getSetting('is_debug'))
-            {
-              ImageProxy_Http::message('404: Origin file is not exists.');
-            }
-            else
-            {
-              header("HTTP/1.0 404 Not Found");
-            }
-
-            return;
-          }
-          else //元画像が存在して変わってなかった
-          {
-            touch($image->getSavePath());
-          }
-        }
+        $image->loadOnlyHeader();
+        $image->loadFromOriginLocal();
+      }
+      else
+      {
+        $image->loadFromRemote();
       }
 
-      //HTTP_IF_MODIFIED_SINCEが来ていたらブラウザキャシュがあるはずなので304
-      if(isset($_SERVER["HTTP_IF_MODIFIED_SINCE"])){
-        header("HTTP/1.1 304 Not Modified");
+      if(!$image->getBody())
+      {
+        if($this->_getSetting('is_debug'))
+        {
+          ImageProxy_Http::message('404: Fail to load image from origin.');
+        }
+        else
+        {
+          header("HTTP/1.0 404 Not Found");
+        }
+
         return;
       }
 
-      //ローカルから画像を読み込む
-      $image->loadFromLocal();
+      //保存
+      $image->saveLocal();
       $this->_response($image);
-
-      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local server.');
-
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from remote because no local file.');
       return;
     }
 
-    //リサイズなし画像をメモリに読み込む。ローカルにあったらそれを読み込む
-    if($this->_getSetting('is_nocache') == false && file_exists($image->getOriginSavePath()))
+    //ローカルにファイルが有った。
+
+    //check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
+    //元サーバーの画像が`404 Not Found`を返したら404にする
+    $check_interval_sec = $this->_getSetting('check_interval_sec');
+    if($check_interval_sec === null)
     {
-      $image->loadFromOriginLocal();
-    }
-    else
-    {
-      $image->loadFromRemote();
+      //ローカルから画像を読み込む
+      $image->loadFromLocal();
+      $this->_response($image);
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local　because no check_interval_sec setting.');
+      return;
     }
 
-    if(!$image->getBody())
+    //時間が経っていなかった
+    $lifetime = time() - filemtime($image->getSavePath());
+    if($lifetime < $check_interval_sec)
     {
-      if($this->_getSetting('is_nocache') && file_exists($save_path))
-      {
-        //nocacheモードの時はここでファイルが存在することがあるので消しておく。
-        unlink($save_path);
-      }
+      //ローカルから画像を読み込む
+      $image->loadFromLocal();
+      $this->_response($image);
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local server because less than check_interval_sec.');
+      return;
+    }
+
+    //リモートファイルの存在
+    $image->loadOnlyHeader();
+    //リモートの元画像が無かった
+    if(!$image->existsOnRemote())
+    {
+      //念のため消しておく。
+      @unlink($image->getSavePath());
 
       if($this->_getSetting('is_debug'))
       {
-        ImageProxy_Http::message('404: Fail to load image from origin.');
+        ImageProxy_Http::message('404: Origin file is not exists.');
       }
       else
       {
@@ -774,9 +842,20 @@ class ImageProxy_Http
       return;
     }
 
-    //保存
-    $image->saveLocal();
+    //元画像が更新されていた
+    if($image->needsUpdate())
+    {
+      $image->loadFromRemote();
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from remote because original image was updated.');
+      $image->saveLocal();
+      $this->_response($image);
+      return;
+    }
+
+    //ローカルから画像を読み込む
+    $image->loadFromLocal();
     $this->_response($image);
+    if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image local server.');
   }
 
   private function _response(ImageProxy_Image $image)
@@ -799,5 +878,10 @@ class ImageProxy_Http
   }
 }
 
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+// 起動スクリプト
 $ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
 $ip->execute();
