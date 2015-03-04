@@ -1,4 +1,15 @@
 <?php
+function ImageProxy_ExceptionHandler($e)
+{
+  ImageProxy_Http::message('');
+  ImageProxy_Http::message('%s', get_class($e));
+  ImageProxy_Http::message('%s', $e->getMessage());
+  foreach(explode("\n", $e->getTraceAsString()) as $trace)
+  {
+    ImageProxy_Http::message('%s', $trace);
+  }
+}
+set_exception_handler('ImageProxy_ExceptionHandler');
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 /**
@@ -32,7 +43,7 @@ class ImageProxy_Image_Data
     }
   }
 
-  public function getDataPath()
+  public function getPath()
   {
     return $this->_data_path;
   }
@@ -209,12 +220,22 @@ class ImageProxy_Image
 
       ImageProxy_Http::message('Remote domain: %s', $this->_domain);
       ImageProxy_Http::message('Origin: %s', $this->_org_path);
-      ImageProxy_Http::message('Data path: %s', $this->_data->getDataPath());
+      ImageProxy_Http::message('Data path: %s', $this->_data->getPath());
       foreach($this->_data->toArray() as $key => $value)
       {
         ImageProxy_Http::message('Data %s: %s', $key, $value);
       }
     }
+  }
+
+  public function getDataPath()
+  {
+    return $this->_data->getPath();
+  }
+
+  public function getOriginDataPath()
+  {
+    return $this->_origin_data->getPath();
   }
 
   /**
@@ -257,18 +278,26 @@ class ImageProxy_Image
     $header_str = @curl_exec($ch);
 
     if($this->_is_debug) ImageProxy_Http::message('Load only header');
-    $this->_headers = $this->_headerStringToArray($header_str);
+    $this->_setHeaders($header_str);
   }
 
   public function loadFromOriginLocal()
   {
     if($this->_is_debug) ImageProxy_Http::message('Load from origin local');
+    if(!file_exists($this->_org_save_path))
+    {
+      throw new Exception('Missing file '.$this->_org_save_path);
+    }
     $this->_body = file_get_contents($this->_org_save_path);
   }
 
   public function loadFromLocal()
   {
     if($this->_is_debug) ImageProxy_Http::message('Load from local');
+    if(!file_exists($this->_save_path))
+    {
+      throw new Exception('Missing file '.$this->_save_path);
+    }
     $this->_body = file_get_contents($this->_save_path);
   }
 
@@ -279,7 +308,7 @@ class ImageProxy_Image
 
     if($this->_is_debug) ImageProxy_Http::message('Load from remote');
     @list($header_str, $this->_body) = explode("\r\n\r\n", $resp);
-    $this->_headers = $this->_headerStringToArray($header_str);
+    $this->_setHeaders($header_str);
   }
 
   public function needsUpdate()
@@ -490,7 +519,7 @@ class ImageProxy_Image
     }
   }
 
-  private function _headerStringToArray($header_str)
+  private function _setHeaders($header_str)
   {
     //headerを解析して配列にする
     $headers = array();
@@ -524,6 +553,17 @@ class ImageProxy_Image
     $this->_data->save();
     $this->_origin_data->save();
 
+    $this->_headers = $headers;
+
+    //元サーバーが404で画像ファイルがあったら消す。データファイルは残しておく。
+    if(!$this->existsOnRemote())
+    {
+      foreach(array($this->_save_path, $this->_org_save_path) as $file)
+      {
+        @unlink($file);
+      }
+    }
+
     if($this->_is_debug)
     {
       foreach($headers as $key => $value)
@@ -541,8 +581,6 @@ class ImageProxy_Image
         ImageProxy_Http::message('Origin Data updated %s', $key);
       }
     }
-
-    return $headers;
   }
 
   private function _getHeader($key, $default = null)
@@ -764,8 +802,9 @@ class ImageProxy_Http
     $image = new ImageProxy_Image($save_path, $this->_settings);
 
     //ローカルに画像が存在しなかった
-    if(!file_exists($image->getSavePath()))
+    if(!file_exists($image->getDataPath()))
     {
+      //元画像が404だとこの時点で元画像データはあるが、元画像ファイルはないので、ここでチェックするのは`getOriginPath`
       if($this->_getSetting('is_nocache') == false && file_exists($image->getOriginSavePath()))
       {
         $image->loadOnlyHeader();
@@ -776,17 +815,9 @@ class ImageProxy_Http
         $image->loadFromRemote();
       }
 
-      if(!$image->getBody())
+      if(!$image->existsOnRemote())
       {
-        if($this->_getSetting('is_debug'))
-        {
-          ImageProxy_Http::message('404: Fail to load image from origin.');
-        }
-        else
-        {
-          header("HTTP/1.0 404 Not Found");
-        }
-
+        $this->_response404();
         return;
       }
 
@@ -797,48 +828,39 @@ class ImageProxy_Http
       return;
     }
 
-    //ローカルにファイルが有った。
+    //ローカルにデータファイルが有った。
 
     //check_interval_secより時間が立っていたら元サーバーに画像の存在を確認する
     //元サーバーの画像が`404 Not Found`を返したら404にする
     $check_interval_sec = $this->_getSetting('check_interval_sec');
-    if($check_interval_sec === null)
+
+    //check_interval_secがない場合は常にローカルを返す。
+    if($this->_getSetting('is_nocache') == false && $check_interval_sec === null)
     {
-      //ローカルから画像を読み込む
-      $image->loadFromLocal();
-      $this->_response($image);
-      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local　because no check_interval_sec setting.');
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Load image from local because no check_interval_sec setting.');
+      $this->_responseLocal($image);
       return;
     }
 
     //時間が経っていなかった
-    $lifetime = time() - filemtime($image->getSavePath());
-    if($lifetime < $check_interval_sec)
+    $lifetime = time() - filemtime($image->getDataPath());
+    if($this->_getSetting('is_nocache') == false && $lifetime < $check_interval_sec)
     {
-      //ローカルから画像を読み込む
-      $image->loadFromLocal();
-      $this->_response($image);
-      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from local server because less than check_interval_sec.');
+      if($this->_getSetting('is_debug')) ImageProxy_Http::message('Load image from local server because less than check_interval_sec.');
+      $this->_responseLocal($image);
       return;
     }
 
-    //リモートファイルの存在
+    //この時点でローカルにキャッシュファイルがあって、なおかつチェックが必要な状態。
+
     $image->loadOnlyHeader();
+    //ヘッダーをチェックしたのでmtimeを更新。
+    touch($image->getDataPath());
+
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
     {
-      //念のため消しておく。
-      @unlink($image->getSavePath());
-
-      if($this->_getSetting('is_debug'))
-      {
-        ImageProxy_Http::message('404: Origin file is not exists.');
-      }
-      else
-      {
-        header("HTTP/1.0 404 Not Found");
-      }
-
+      $this->_response404();
       return;
     }
 
@@ -852,10 +874,35 @@ class ImageProxy_Http
       return;
     }
 
-    //ローカルから画像を読み込む
-    $image->loadFromLocal();
-    $this->_response($image);
+    //元サーバーの画像をチェックしたところ何も変わっていなかった。
+    $this->_responseLocal($image);
     if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image local server.');
+  }
+
+  private function _response404()
+  {
+    if($this->_getSetting('is_debug'))
+    {
+      ImageProxy_Http::message('404: file is not exists.');
+    }
+    else
+    {
+      header("HTTP/1.0 404 Not Found");
+    }
+  }
+
+  private function _responseLocal(ImageProxy_Image $image)
+  {
+    if(file_exists($image->getSavePath()))
+    {
+      //ローカルから画像を読み込む
+      $image->loadFromLocal();
+      $this->_response($image);
+    }
+    else//前のリクエストが404だった
+    {
+      $this->_response404();
+    }
   }
 
   private function _response(ImageProxy_Image $image)
