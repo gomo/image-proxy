@@ -19,12 +19,14 @@ $settings = array(
     'grandchild' => array(
       'inherit' => 'child',
       'ip' => '0.0.0.0'
-    )
+    ),
+    //実際のリクエスト用
+    'test.www.sincere-co.com' => array(),
   ),
 
   //元画像が更新されているかどうかチェックするインターバル。秒。省略すると元サーバーのチェックはしません。
   //レスポンスヘッダーの`Last-Modified`, `Content-Length`, `Content-Type`が比較されます。
-  'check_interval_sec' => 0,
+  'check_interval_sec' => 3600,
 
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
   //拡大はしません。false（に評価される値）を渡すとリサイズしません。
