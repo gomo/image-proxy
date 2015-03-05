@@ -1,19 +1,30 @@
 <?php
 
 $settings = array(
-  //元画像のオリジナルサーバーの設定。キーにないドメインは404が返されます。
   'server' => array(
-    'bucket.s3.amazonaws.com' => array(
-      'ip' => '127.0.0.1',                   //省略可能。省略時はDNSを利用する
-      'domain' => 'bucket.s3.amazonaws.com', //省略可能。省略時はキーが使用される。パス内にドメインを入れたくない時に使用します
-      'protocol' => 'http',                  //省略可能。省略時は`http`
-      'inherit' => 'default',                //他の設定を継承できる
+    //追加設定の何もないサーバー
+    'www.plane.com' => array(),
+    //追加設定のあるサーバー
+    'foo' => array(
+      'domain' => 'www.foo.com',
+      'ip' => '127.0.0.1',
+      'protocol' => 'https',
     ),
+    //継承
+    'child' => array(
+      'inherit' => 'foo',
+      'protocol' => 'http',
+    ),
+    //孫
+    'grandchild' => array(
+      'inherit' => 'child',
+      'ip' => '0.0.0.0'
+    )
   ),
 
   //元画像が更新されているかどうかチェックするインターバル。秒。省略すると元サーバーのチェックはしません。
   //レスポンスヘッダーの`Last-Modified`, `Content-Length`, `Content-Type`が比較されます。
-  'check_interval_sec' => 10800,
+  'check_interval_sec' => 0,
 
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
   //拡大はしません。false（に評価される値）を渡すとリサイズしません。

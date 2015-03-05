@@ -112,9 +112,6 @@ class ImageProxy_Image
 {
   private $_save_path;
 
-  //元サーバーのドメイン
-  private $_domain;
-
   //サイズ変更のない元画像のローカル保存パス
   private $_org_save_path;
 
@@ -206,9 +203,9 @@ class ImageProxy_Image
 
     //設定を取得
     $this->_server_values = $this->_detectServerValues($settings['server'], $server_name);
+    //ドメイン設定がなかったらキーがドメイン名に成る
+    $this->_server_values['domain'] = $this->getServerValue('domain', $server_name);
 
-    //リモートドメインの確定
-    $this->_domain = $this->_getServerValue('domain', $server_name);
 
     if($this->_is_debug)
     {
@@ -218,7 +215,7 @@ class ImageProxy_Image
         ImageProxy_Http::message('Server %s: %s', $key, $value);
       }
 
-      ImageProxy_Http::message('Remote domain: %s', $this->_domain);
+      ImageProxy_Http::message('Remote domain: %s', $this->getServerValue('domain'));
       ImageProxy_Http::message('Origin: %s', $this->_org_path);
       ImageProxy_Http::message('Data path: %s', $this->_data->getPath());
       foreach($this->_data->toArray() as $key => $value)
@@ -596,7 +593,7 @@ class ImageProxy_Image
   /**
    * config.phpのserverから値を取得する
    */
-  private function _getServerValue($key, $default = null)
+  public function getServerValue($key, $default = null)
   {
     if(isset($this->_server_values[$key]))
     {
@@ -615,17 +612,17 @@ class ImageProxy_Image
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
     //domain
-    $domain = $this->_domain;
+    $domain = $this->getServerValue('domain');
 
     //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
-    if($ip = $this->_getServerValue('ip'))
+    if($ip = $this->getServerValue('ip'))
     {
       curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
       if($this->_is_debug) ImageProxy_Http::message('Added header Host: %s to specify ip address', $domain);
       $domain = $ip;
     }
 
-    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$this->_org_path;
+    $url = $this->getServerValue('protocol', 'http').'://'.$domain.$this->_org_path;
     curl_setopt($ch, CURLOPT_URL, $url);
 
     if($this->_is_debug) ImageProxy_Http::message('Created curl handle for %s', $url);
@@ -674,7 +671,6 @@ class ImageProxy_Http
 
   //内部変数
   private $_script_dir;
-  private $_server_values;
   private $_width;
   private $_height;
   private $_time_start;
@@ -789,17 +785,22 @@ class ImageProxy_Http
     }
   }
 
-  private function _execute()
+  public function createImage($request_uri)
   {
     //ファイルの保存パス
-    $save_path = $this->detectSavePath($_SERVER['REQUEST_URI']);
+    $save_path = $this->detectSavePath($request_uri);
 
     if($this->_getSetting('is_debug'))
     {
       ImageProxy_Http::message('Save path: %s', $save_path);
     }
 
-    $image = new ImageProxy_Image($save_path, $this->_settings);
+    return new ImageProxy_Image($save_path, $this->_settings);
+  }
+
+  private function _execute()
+  {
+    $image = $this->createImage($_SERVER['REQUEST_URI']);
 
     //ローカルに画像が存在しなかった
     if(!file_exists($image->getDataPath()))
