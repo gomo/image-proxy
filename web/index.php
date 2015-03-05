@@ -682,15 +682,15 @@ class ImageProxy_Http
   public function __construct($script_path)
   {
     $this->_time_start = microtime(true);
-
     $this->_script_dir = dirname($script_path);
+    chdir($this->_script_dir);
 
-    include 'config.php';
+    include $this->_script_dir.'/'.'config.php';
     $this->_settings = $settings;
 
     if(!is_writable('./'.$this->_settings['img_dir']))
     {
-      throw new Exception('[./'.$this->_img_dir.'] is not writable.');
+      throw new Exception('[./'.$this->_settings['img_dir'].'] is not writable.');
     }
 
     if($this->_getSetting('is_debug'))
@@ -717,9 +717,9 @@ class ImageProxy_Http
    * @param string $request_uri comment
    * @return string
    */
-  private function _detectSavePath($request_uri)
+  public function detectSavePath($request_uri)
   {
-    if($_SERVER['QUERY_STRING'])
+    if(!empty($_SERVER['QUERY_STRING']))
     {
       $request_uri = str_replace('?'.$_SERVER['QUERY_STRING'], '', $request_uri);
     }
@@ -792,7 +792,7 @@ class ImageProxy_Http
   private function _execute()
   {
     //ファイルの保存パス
-    $save_path = $this->_detectSavePath($_SERVER['REQUEST_URI']);
+    $save_path = $this->detectSavePath($_SERVER['REQUEST_URI']);
 
     if($this->_getSetting('is_debug'))
     {
@@ -930,5 +930,8 @@ class ImageProxy_Http
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 // 起動スクリプト
-$ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
-$ip->execute();
+if(!isset($_SERVER['ImageProxy_Test']))//テスト用
+{
+  $ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
+  $ip->execute();  
+}
