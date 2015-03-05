@@ -132,6 +132,72 @@ class ImageProxy extends PHPUnit_Framework_TestCase
     $this->assertSame(1, $image->getHeaderRequestCount());//一度ヘッダーのみ問い合わせて更新を検出してるので
   }
 
+  public function testExecuteJpegImage()
+  {
+    $http = new ImageProxy_Http($this->_test_dir.'/index.php');
+
+    //初回
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(1, $image->getRequestCount());
+    $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //2回め　スグ
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //まだcheck_interval_secを過ぎていない（少し経過）
+    $http->switchCurrentTime(time() + 2000);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //check_interval_secを過ぎた
+    $http->switchCurrentTime(time() + 3700);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(1, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //画像が更新される（Last-Modifiedが変わる）
+    $resp = file_get_contents('http://test.www.sincere-co.com/image-proxy/util.php?func=update&target=image.jpg');
+    $this->assertSame('0', $resp);
+
+    //でもまだcheck_interval_secを過ぎてない
+    $http->switchCurrentTime(time() + 4000);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //更新時間が過ぎたらリクエストが飛ぶ
+    $http->switchCurrentTime(time() + 8000);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
+    $this->assertSame(1, $image->getRequestCount());
+    $this->assertSame(1, $image->getHeaderRequestCount());
+  }
+
   //////////////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////////////
   //ユーティリティーメソッド
