@@ -47,5 +47,17 @@ class ImageProxy extends PHPUnit_Framework_TestCase
     $this->assertEquals('www.foo.com', $image->getServerValue('domain'));
     $this->assertEquals('0.0.0.0', $image->getServerValue('ip'));
     $this->assertEquals('http', $image->getServerValue('protocol'));
+
+
+    //サイズ変更ありのパステスト
+    $image = $http->createImage('/img/foo/image-proxy/w120_sample.jpg');
+
+    //save path
+    $this->assertEquals('./img/foo/image-proxy/w120_sample.jpg', $image->getSavePath());
+    $this->assertEquals('./img/foo/image-proxy/w120_sample.jpg.php', $image->getDataPath());
+
+    //origin save path
+    $this->assertEquals('./img/foo/image-proxy/sample.jpg', $image->getOriginSavePath());
+    $this->assertEquals('./img/foo/image-proxy/sample.jpg.php', $image->getOriginDataPath());
   }
 }
