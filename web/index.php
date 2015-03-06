@@ -53,6 +53,7 @@ class ImageProxy_Image_Data
     if($this->_updated_values)
     {
       $code = '<?php $data = '.var_export($this->_data, true).';';
+      ImageProxy_Http::mkdir(dirname($this->_data_path));
       file_put_contents($this->_data_path, $code);
       chmod($this->_data_path, 0777);
     }
@@ -112,9 +113,6 @@ class ImageProxy_Image
 {
   private $_save_path;
 
-  //元サーバーのドメイン
-  private $_domain;
-
   //サイズ変更のない元画像のローカル保存パス
   private $_org_save_path;
 
@@ -136,6 +134,11 @@ class ImageProxy_Image
 
   //元サーバーのレスポンスゲッダー
   private $_headers;
+
+  //元サーバーにリクエストしたカウント（ユニットテスト用）
+  private $_request_count = 0;
+  //ヘッダーのみ取りに行ったカウント
+  private $_header_request_count = 0;
 
 
   //画像本体
@@ -206,9 +209,9 @@ class ImageProxy_Image
 
     //設定を取得
     $this->_server_values = $this->_detectServerValues($settings['server'], $server_name);
+    //ドメイン設定がなかったらキーがドメイン名に成る
+    $this->_server_values['domain'] = $this->getServerValue('domain', $server_name);
 
-    //リモートドメインの確定
-    $this->_domain = $this->_getServerValue('domain', $server_name);
 
     if($this->_is_debug)
     {
@@ -218,7 +221,7 @@ class ImageProxy_Image
         ImageProxy_Http::message('Server %s: %s', $key, $value);
       }
 
-      ImageProxy_Http::message('Remote domain: %s', $this->_domain);
+      ImageProxy_Http::message('Remote domain: %s', $this->getServerValue('domain'));
       ImageProxy_Http::message('Origin: %s', $this->_org_path);
       ImageProxy_Http::message('Data path: %s', $this->_data->getPath());
       foreach($this->_data->toArray() as $key => $value)
@@ -226,6 +229,12 @@ class ImageProxy_Image
         ImageProxy_Http::message('Data %s: %s', $key, $value);
       }
     }
+  }
+
+  public function changeModifiedTime($time)
+  {
+    touch($this->_data->getPath(), $time);
+    touch($this->_origin_data->getPath(), $time);
   }
 
   public function getDataPath()
@@ -276,6 +285,7 @@ class ImageProxy_Image
 
     //リクエストする
     $header_str = @curl_exec($ch);
+    ++$this->_header_request_count;
 
     if($this->_is_debug) ImageProxy_Http::message('Load only header');
     $this->_setHeaders($header_str);
@@ -305,10 +315,24 @@ class ImageProxy_Image
   {
     $ch = $this->_createCurlHandler();
     $resp = @curl_exec($ch);
+    ++$this->_request_count;
 
     if($this->_is_debug) ImageProxy_Http::message('Load from remote');
     @list($header_str, $this->_body) = explode("\r\n\r\n", $resp);
     $this->_setHeaders($header_str);
+  }
+
+  public function getRequestCount()
+  {
+    return $this->_request_count;
+  }
+
+  /**
+   * ヘッダーのみリクエストしたカウント。本体をリクエストした時は増えません。
+   */
+  public function getHeaderRequestCount()
+  {
+    return $this->_header_request_count;
   }
 
   public function needsUpdate()
@@ -383,7 +407,7 @@ class ImageProxy_Image
     //ローカルのリサイズなし画像
     if(!file_exists($this->_org_save_path))
     {
-      $this->_mkdir(dirname($this->_org_save_path));
+      ImageProxy_Http::mkdir(dirname($this->_org_save_path));
       file_put_contents($this->_org_save_path, $this->_body);
       chmod($this->_org_save_path, 0777);
 
@@ -493,32 +517,6 @@ class ImageProxy_Image
     }
   }
 
-  private function _mkdir($path)
-  {
-    if(!file_exists($path))
-    {
-      //階層名を分割
-      $dirs = explode('/', $path);
-
-      $dir_path = '';
-
-      //上の階層から順にディレクトリをチェック＆作成
-      foreach($dirs as $dir)
-      {
-        $dir_path .= $dir . '/';
-
-        //ディレクトリのパスをつないでチェック。無かったらフォルダ作成
-        if(file_exists($dir_path))
-        {
-          continue;
-        }
-
-        mkdir($dir_path);
-        chmod($dir_path, 0777);
-      }
-    }
-  }
-
   private function _setHeaders($header_str)
   {
     //headerを解析して配列にする
@@ -596,7 +594,7 @@ class ImageProxy_Image
   /**
    * config.phpのserverから値を取得する
    */
-  private function _getServerValue($key, $default = null)
+  public function getServerValue($key, $default = null)
   {
     if(isset($this->_server_values[$key]))
     {
@@ -615,21 +613,20 @@ class ImageProxy_Image
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
 
     //domain
-    $domain = $this->_domain;
+    $domain = $this->getServerValue('domain');
 
     //ipが設定してる時はheaderにHost:domainを指定してhttp://ipでアクセスする
-    if($ip = $this->_getServerValue('ip'))
+    if($ip = $this->getServerValue('ip'))
     {
       curl_setopt($ch, CURLOPT_HTTPHEADER, array('Host: '.$domain));
       if($this->_is_debug) ImageProxy_Http::message('Added header Host: %s to specify ip address', $domain);
       $domain = $ip;
     }
 
-    $url = $this->_getServerValue('protocol', 'http').'://'.$domain.$this->_org_path;
+    $url = $this->getServerValue('protocol', 'http').'://'.$domain.$this->_org_path;
     curl_setopt($ch, CURLOPT_URL, $url);
 
     if($this->_is_debug) ImageProxy_Http::message('Created curl handle for %s', $url);
-
     return $ch;
   }
 
@@ -674,23 +671,23 @@ class ImageProxy_Http
 
   //内部変数
   private $_script_dir;
-  private $_server_values;
   private $_width;
   private $_height;
   private $_time_start;
+  private $_response;
 
   public function __construct($script_path)
   {
     $this->_time_start = microtime(true);
-
     $this->_script_dir = dirname($script_path);
+    chdir($this->_script_dir);
 
-    include 'config.php';
+    include $this->_script_dir.'/'.'config.php';
     $this->_settings = $settings;
 
     if(!is_writable('./'.$this->_settings['img_dir']))
     {
-      throw new Exception('[./'.$this->_img_dir.'] is not writable.');
+      throw new Exception('[./'.$this->_settings['img_dir'].'] is not writable.');
     }
 
     if($this->_getSetting('is_debug'))
@@ -717,9 +714,9 @@ class ImageProxy_Http
    * @param string $request_uri comment
    * @return string
    */
-  private function _detectSavePath($request_uri)
+  public function detectSavePath($request_uri)
   {
-    if($_SERVER['QUERY_STRING'])
+    if(!empty($_SERVER['QUERY_STRING']))
     {
       $request_uri = str_replace('?'.$_SERVER['QUERY_STRING'], '', $request_uri);
     }
@@ -776,30 +773,26 @@ class ImageProxy_Http
     return $default;
   }
 
-  /**
-   * メインのエントリーメソッド。ここが起動されます。
-   */
-  public function execute()
-  {
-    $this->_execute();
-    if($this->_getSetting('is_debug'))
-    {
-      $time = microtime(true) - $this->_time_start;
-      ImageProxy_Http::message('Time: %01.10f sec', $time);
-    }
-  }
-
-  private function _execute()
+  public function createImage($request_uri)
   {
     //ファイルの保存パス
-    $save_path = $this->_detectSavePath($_SERVER['REQUEST_URI']);
+    $save_path = $this->detectSavePath($request_uri);
 
     if($this->_getSetting('is_debug'))
     {
       ImageProxy_Http::message('Save path: %s', $save_path);
     }
 
-    $image = new ImageProxy_Image($save_path, $this->_settings);
+    return new ImageProxy_Image($save_path, $this->_settings);
+  }
+
+  public function execute(ImageProxy_Image $image)
+  {
+    //レスポンスを初期化
+    $this->_response = array(
+      'headers' => array(),
+      'body' => null,
+    );
 
     //ローカルに画像が存在しなかった
     if(!file_exists($image->getDataPath()))
@@ -851,6 +844,8 @@ class ImageProxy_Http
       return;
     }
 
+
+
     //この時点でローカルにキャッシュファイルがあって、なおかつチェックが必要な状態。
 
     $image->loadOnlyHeader();
@@ -881,14 +876,7 @@ class ImageProxy_Http
 
   private function _response404()
   {
-    if($this->_getSetting('is_debug'))
-    {
-      ImageProxy_Http::message('404: file is not exists.');
-    }
-    else
-    {
-      header("HTTP/1.0 404 Not Found");
-    }
+    $this->_response['headers'][] = "HTTP/1.0 404 Not Found";
   }
 
   private function _responseLocal(ImageProxy_Image $image)
@@ -907,20 +895,66 @@ class ImageProxy_Http
 
   private function _response(ImageProxy_Image $image)
   {
+    $data = $image->getBody();
+    $this->_response['body'] = $data;
+    $this->_response['headers'][] = 'Content-Type: '. $image->getContentType();
+    $this->_response['headers'][] = 'Content-Length: '. strlen($data);
+    $this->_response['headers'][] = "Last-Modified: " . $image->getLastModified();
+  }
+
+  public function getResponseHeaders()
+  {
+    return $this->_response['headers'];
+  }
+
+  public function response()
+  {
+    foreach($this->_response['headers'] as $header)
+    {
+      if($this->_getSetting('is_debug'))
+      {
+        ImageProxy_Http::message('Response %s', $header);
+      }
+      else
+      {
+        header($header);
+      }
+    }
+
     if($this->_getSetting('is_debug'))
     {
-      ImageProxy_Http::message('Response Content-Type: %s', $image->getContentType());
-      ImageProxy_Http::message('Response Content-Length: %s', strlen($image->getBody()));
-      ImageProxy_Http::message('Response Last-Modified: %s', $image->getLastModified());
+      $time = microtime(true) - $this->_time_start;
+      ImageProxy_Http::message('Time: %01.10f sec', $time);
     }
-    else
+    else if($this->_response['body'])
     {
-      $data = $image->getBody();
-      header('Content-Type: '. $image->getContentType());
-      header('Content-Length: '. strlen($data));
-      header("Last-Modified: " . $image->getLastModified());
+      echo $this->_response['body'];
+    }
+  }
 
-      echo $data;
+  public static function mkdir($path)
+  {
+    if(!file_exists($path))
+    {
+      //階層名を分割
+      $dirs = explode('/', $path);
+
+      $dir_path = '';
+
+      //上の階層から順にディレクトリをチェック＆作成
+      foreach($dirs as $dir)
+      {
+        $dir_path .= $dir . '/';
+
+        //ディレクトリのパスをつないでチェック。無かったらフォルダ作成
+        if(file_exists($dir_path))
+        {
+          continue;
+        }
+
+        mkdir($dir_path);
+        chmod($dir_path, 0777);
+      }
     }
   }
 }
@@ -930,5 +964,9 @@ class ImageProxy_Http
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 // 起動スクリプト
-$ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
-$ip->execute();
+if(!isset($_SERVER['ImageProxy_Test']))//テスト時はIncludeのみで実行しません。
+{
+  $ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
+  $ip->execute($ip->createImage($_SERVER['REQUEST_URI']));
+  $ip->response();
+}
