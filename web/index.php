@@ -231,6 +231,12 @@ class ImageProxy_Image
     }
   }
 
+  public function changeModifiedTime($time)
+  {
+    touch($this->_data->getPath(), $time);
+    touch($this->_origin_data->getPath(), $time);
+  }
+
   public function getDataPath()
   {
     return $this->_data->getPath();
@@ -668,7 +674,6 @@ class ImageProxy_Http
   private $_width;
   private $_height;
   private $_time_start;
-  private $_current_time;
   private $_response;
 
   public function __construct($script_path)
@@ -694,13 +699,6 @@ class ImageProxy_Http
         ImageProxy_Http::message('No cache mode enabled.');
       }
     }
-
-    $this->_current_time = time();
-  }
-
-  public function switchCurrentTime($time)
-  {
-    $this->_current_time = $time;
   }
 
   /**
@@ -838,7 +836,7 @@ class ImageProxy_Http
     }
 
     //時間が経っていなかった
-    $lifetime = $this->_current_time - filemtime($image->getDataPath());
+    $lifetime = time() - filemtime($image->getDataPath());
     if($this->_getSetting('is_nocache') == false && $lifetime < $check_interval_sec)
     {
       if($this->_getSetting('is_debug')) ImageProxy_Http::message('Load image from local server because less than check_interval_sec.');
@@ -846,11 +844,13 @@ class ImageProxy_Http
       return;
     }
 
+
+
     //この時点でローカルにキャッシュファイルがあって、なおかつチェックが必要な状態。
 
     $image->loadOnlyHeader();
     //ヘッダーをチェックしたのでmtimeを更新。
-    touch($image->getDataPath(), $this->_current_time);
+    touch($image->getDataPath());
 
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
