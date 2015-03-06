@@ -311,6 +311,12 @@ class ImageProxy_Image
     $this->_body = file_get_contents($this->_save_path);
   }
 
+  public function delete()
+  {
+    @unlink($this->_org_save_path);
+    @unlink($this->_save_path);
+  }
+
   public function loadFromRemote()
   {
     $ch = $this->_createCurlHandler();
@@ -810,6 +816,7 @@ class ImageProxy_Http
 
       if(!$image->existsOnRemote())
       {
+        $image->delete();//必要ないかもしれないけど念のため消しておく
         $this->_response404();
         return;
       }
@@ -855,6 +862,7 @@ class ImageProxy_Http
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
     {
+      $image->delete();
       $this->_response404();
       return;
     }
@@ -862,6 +870,7 @@ class ImageProxy_Http
     //元画像が更新されていた
     if($image->needsUpdate())
     {
+      $image->delete();
       $image->loadFromRemote();
       if($this->_getSetting('is_debug')) ImageProxy_Http::message('Loaded image from remote because original image was updated.');
       $image->saveLocal();

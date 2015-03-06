@@ -129,7 +129,11 @@ class ImageProxy extends PHPUnit_Framework_TestCase
 
     //初回
     $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $this->assertFalse(file_exists($image->getSavePath()));
+    $this->assertFalse(file_exists($image->getDataPath()));
     $http->execute($image);
+    $this->assertTrue(file_exists($image->getSavePath()));
+    $this->assertTrue(file_exists($image->getDataPath()));
     $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
     $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
     $this->assertSame(1, $image->getRequestCount());
@@ -189,14 +193,59 @@ class ImageProxy extends PHPUnit_Framework_TestCase
     $this->assertSame(1, $image->getHeaderRequestCount());
   }
 
+  public function testSwapOriginImage()
+  {
+    $http = new ImageProxy_Http($this->_test_dir.'/index.php');
+
+    //サイズ違い3つ
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $http->execute($image);
+    $size_org = filesize($image->getSavePath());
+
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w120_image.jpg');
+    $http->execute($image);
+    $size_120 = filesize($image->getSavePath());
+
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w130_image.jpg');
+    $http->execute($image);
+    $size_130 = filesize($image->getSavePath());
+
+    //画像が更新される（Last-Modifiedが変わる）
+    $resp = file_get_contents('http://test.www.sincere-co.com/image-proxy/util.php?func=crop&target=image.jpg');
+    $this->assertSame('0', $resp);
+
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/image.jpg');
+    $image->changeModifiedTime(time() - 3700);
+    $http->execute($image);
+    $this->assertNotEquals($size_org, filesize($image->getSavePath()));
+
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w120_image.jpg');
+    $image->changeModifiedTime(time() - 3700);
+    $http->execute($image);
+    $this->assertNotEquals($size_120, filesize($image->getSavePath()));
+
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w130_image.jpg');
+    $image->changeModifiedTime(time() - 3700);
+    $http->execute($image);
+    $this->assertNotEquals($size_130, filesize($image->getSavePath()));
+  }
+
   public function testExecuteResizeJpegImage()
   {
     $http = new ImageProxy_Http($this->_test_dir.'/index.php');
 
     //初回
     $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w120_image.jpg');
+    $this->assertFalse(file_exists($image->getSavePath()));
+    $this->assertFalse(file_exists($image->getDataPath()));
+    $this->assertFalse(file_exists($image->getOriginSavePath()));
+    $this->assertFalse(file_exists($image->getOriginDataPath()));
     $http->execute($image);
     $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
+    $this->assertTrue(file_exists($image->getSavePath()));
+    $this->assertTrue(file_exists($image->getDataPath()));
+    $this->assertTrue(file_exists($image->getOriginSavePath()));
+    $this->assertTrue(file_exists($image->getOriginDataPath()));
     list($width,,,) = getimagesize($image->getSavePath());
     $this->assertSame(120, $width);
     $this->assertSame(1, $image->getRequestCount());
