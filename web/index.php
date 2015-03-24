@@ -15,7 +15,7 @@ set_exception_handler('ImageProxy_ExceptionHandler');
 /**
  * 画像のヘッダー情報などを保存・取得するクラス
  * サイズ指定画像、元画像用別々に扱います。一回のリクエストで2つ生成します。
- * 
+ *
  * @author Masamoto Miyata
  */
 class ImageProxy_Image_Data
@@ -191,7 +191,7 @@ class ImageProxy_Image
     {
       $this->_org_save_path = $this->_save_path;
     }
-    
+
 
     //元サーバーのタイムスタンプを保存するデータファイルのパス
     $this->_data = new ImageProxy_Image_Data($this->_save_path.'.php');
@@ -427,32 +427,36 @@ class ImageProxy_Image
     if($this->_width || $this->_height)
     {
       list($raw_width, $raw_height,,) = getimagesize($this->_org_save_path);
-
       //拡大はしない
-      if($raw_width > $this->_width && $raw_height > $this->_height)
+      if($raw_width < $this->_width || $raw_height < $this->_height)
       {
-        if(!$this->_width)
-        {
-          $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
-        }
-        else if(!$this->_height)
-        {
-          $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
-        }
-
-        if(preg_match('/\.gif$/u', $this->_save_path))
-        {
-          $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
-        }
-        else
-        {
-          $command = 'convert %s -resize %dx%d %s';
-        }
-
-        exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
-        chmod($this->_save_path, 0777);
-        $need_reload = true;
+        if($this->_is_debug) ImageProxy_Http::message('Illgal size specified. '.$this->_width.'/'.$this->_height);
+        //bodyをnullにすると強制的に404になります。
+        $this->_body = null;
+        return;
       }
+
+      if(!$this->_width)
+      {
+        $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
+      }
+      else if(!$this->_height)
+      {
+        $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
+      }
+
+      if(preg_match('/\.gif$/u', $this->_save_path))
+      {
+        $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+      }
+      else
+      {
+        $command = 'convert %s -resize %dx%d %s';
+      }
+
+      exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
+      chmod($this->_save_path, 0777);
+      $need_reload = true;
     }
 
     if($this->_losslessCompress($this->_save_path))
@@ -905,10 +909,17 @@ class ImageProxy_Http
   private function _response(ImageProxy_Image $image)
   {
     $data = $image->getBody();
-    $this->_response['body'] = $data;
-    $this->_response['headers'][] = 'Content-Type: '. $image->getContentType();
-    $this->_response['headers'][] = 'Content-Length: '. strlen($data);
-    $this->_response['headers'][] = "Last-Modified: " . $image->getLastModified();
+    if($data === null)
+    {
+      $this->_response404();
+    }
+    else
+    {
+      $this->_response['body'] = $data;
+      $this->_response['headers'][] = 'Content-Type: '. $image->getContentType();
+      $this->_response['headers'][] = 'Content-Length: '. strlen($data);
+      $this->_response['headers'][] = "Last-Modified: " . $image->getLastModified();
+    }
   }
 
   public function getResponseHeaders()
