@@ -871,8 +871,8 @@ class ImageProxy_Http
       return;
     }
 
-    //元画像が更新されていた
-    if($image->needsUpdate())
+    //元画像が更新されていた、あるいは、前回のリクエストに失敗して画像が無かった
+    if($image->needsUpdate() || !file_exists($image->getSavePath()))
     {
       $image->delete();
       $image->loadFromRemote();
