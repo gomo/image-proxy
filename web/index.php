@@ -431,32 +431,33 @@ class ImageProxy_Image
       if($raw_width < $this->_width || $raw_height < $this->_height)
       {
         if($this->_is_debug) ImageProxy_Http::message('Illgal size specified. '.$this->_width.'/'.$this->_height);
-        //bodyをnullにすると強制的に404になります。
-        $this->_body = null;
-        return;
-      }
-
-      if(!$this->_width)
-      {
-        $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
-      }
-      else if(!$this->_height)
-      {
-        $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
-      }
-
-      if(preg_match('/\.gif$/u', $this->_save_path))
-      {
-        $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+        //拡大の時は元画像をそのまま帰す。
+        file_put_contents($this->_save_path, $this->_body);
       }
       else
       {
-        $command = 'convert %s -resize %dx%d %s';
-      }
+        if(!$this->_width)
+        {
+          $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
+        }
+        else if(!$this->_height)
+        {
+          $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
+        }
 
-      exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
-      chmod($this->_save_path, 0777);
-      $need_reload = true;
+        if(preg_match('/\.gif$/u', $this->_save_path))
+        {
+          $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+        }
+        else
+        {
+          $command = 'convert %s -resize %dx%d %s';
+        }
+
+        exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
+        chmod($this->_save_path, 0777);
+        $need_reload = true;
+      }
     }
 
     if($this->_losslessCompress($this->_save_path))

@@ -334,6 +334,36 @@ class ImageProxy extends PHPUnit_Framework_TestCase
 
   }
 
+  public function testScaleUp()
+  {
+    $http = new ImageProxy_Http($this->_test_dir.'/index.php');
+
+    //比較用にオリジナルサイズ作成
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/thumb.jpg');
+    $http->execute($image);
+    $size_org = filesize($image->getSavePath());
+
+    //拡大（元画像は576）
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w85_thumb.jpg');
+    $http->execute($image);
+    $size_600 = filesize($image->getSavePath());
+
+    //拡大の時は同じサイズ
+    $this->assertSame($size_org, $size_600);
+    clearstatcache();
+
+    //元画像を90に拡大する
+    $resp = file_get_contents('http://test.www.sincere-co.com/image-proxy/util.php?func=resize&target=thumb.jpg');
+    $this->assertSame('0', $resp);
+
+    //check_interval_secが切れたら、今度は縮小なので、成功するはず
+    $image->changeModifiedTime(time() - 3700);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/w85_thumb.jpg');
+    $http->execute($image);
+    list($width, $height) = getimagesize($image->getSavePath());
+    $this->assertSame(85, $width);
+  }
+
   //////////////////////////////////////////////////////////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////////////
   //ユーティリティーメソッド

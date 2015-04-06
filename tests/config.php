@@ -30,7 +30,7 @@ $settings = array(
 
   //ファイル名からリサイズ情報を取り出す正規表現。$matches[1]が'width_var'か'height_var'。$matches[2]が値（数字）
   //拡大はしません。false（に評価される値）を渡すとリサイズしません。
-  'size_regex' => '/^(w|h)([0-9]{1,2}0)_/u',
+  'size_regex' => '/^(w|h)([0-9]+)_/u',
   'width_var' => 'w',
   'height_var' => 'h',
 
