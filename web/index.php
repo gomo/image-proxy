@@ -804,6 +804,12 @@ class ImageProxy_Http
       'body' => null,
     );
 
+    //ローカルの画像が0byteなら
+    if(file_exists($image->getDataPath()) && !strlen($image->getBody()))
+    {
+      $image->delete();
+    }
+
     //ローカルに画像が存在しなかった
     if(!file_exists($image->getDataPath()))
     {
@@ -911,7 +917,9 @@ class ImageProxy_Http
     $data = $image->getBody();
     if($data === null)
     {
+      $image->delete();
       $this->_response404();
+      return;
     }
     else
     {
@@ -977,6 +985,33 @@ class ImageProxy_Http
       }
     }
   }
+
+  public function lock($target_path)
+  {
+    $path = $this->_getSetting('img_dir') . '/tempdir/' . md5($target_path);
+    $wait = 0;
+    while(!mkdir($path)){
+      if($wait >= 8){
+        $this->_response404();
+        return FALSE;
+      }
+      $wait ++;
+      sleep(1);
+    }
+    return TRUE;
+  }
+
+  public function unlock($target_path)
+  {
+    $path = $this->_getSetting('img_dir') . '/tempdir/' . md5($target_path);
+    try{
+      rmdir($path);
+    }
+    catch(Exception $e)
+    {
+      throw new Exception('unlock failed. '.$target_path);
+    }
+  }
 }
 
 
@@ -987,6 +1022,10 @@ class ImageProxy_Http
 if(!isset($_SERVER['ImageProxy_Test']))//テスト時はIncludeのみで実行しません。
 {
   $ip = new ImageProxy_Http($_SERVER['SCRIPT_FILENAME']);
-  $ip->execute($ip->createImage($_SERVER['REQUEST_URI']));
+  if($ip->lock($_SERVER['REQUEST_URI']))
+  {
+    $ip->execute($ip->createImage($_SERVER['REQUEST_URI']));
+  }
   $ip->response();
+  $ip->unlock($_SERVER['REQUEST_URI']);
 }
