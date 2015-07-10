@@ -59,6 +59,11 @@ class ImageProxy_Image_Data
     }
   }
 
+  public function delete()
+  {
+    @unlink($this->_data_path);
+  }
+
   public function set($key, $value)
   {
     if($this->get($key) != $value)
@@ -804,9 +809,19 @@ class ImageProxy_Http
       'body' => null,
     );
 
-    //ローカルの画像が0byteなら
+    //ローカルの画像が存在するが0byteなら
     if(file_exists($image->getDataPath()) && !strlen($image->getBody()))
     {
+      $image->_data->delete();
+      $image->delete();
+    }
+
+    //データファイルではファイルサイズが真なのに、ローカルファイルが無い
+    if($image->_data->get('Content-Length') &&
+      (!file_exists($image->getDataPath()) || !strlen($image->getBody()))
+    )
+    {
+      $image->_data->delete();
       $image->delete();
     }
 
