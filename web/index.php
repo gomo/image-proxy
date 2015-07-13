@@ -242,6 +242,11 @@ class ImageProxy_Image
     touch($this->_origin_data->getPath(), $time);
   }
 
+  public function getData()
+  {
+    return $this->_data;
+  }
+
   public function getDataPath()
   {
     return $this->_data->getPath();
@@ -812,16 +817,15 @@ class ImageProxy_Http
     //ローカルの画像が存在するが0byteなら
     if(file_exists($image->getDataPath()) && !strlen($image->getBody()))
     {
-      $image->_data->delete();
+      $image->getData()->delete();
       $image->delete();
     }
-
     //データファイルではファイルサイズが真なのに、ローカルファイルが無い
-    if($image->_data->get('Content-Length') &&
+    if($image->getData()->get('Content-Length') &&
       (!file_exists($image->getDataPath()) || !strlen($image->getBody()))
     )
     {
-      $image->_data->delete();
+      $image->getData()->delete();
       $image->delete();
     }
 
@@ -841,7 +845,7 @@ class ImageProxy_Http
 
       if(!$image->existsOnRemote())
       {
-        $image->_data->delete();
+        $image->getData()->delete();
         $image->delete();//必要ないかもしれないけど念のため消しておく
         $this->_response404();
         return;
@@ -888,7 +892,7 @@ class ImageProxy_Http
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
     {
-      $image->_data->delete();
+      $image->getData()->delete();
       $image->delete();
       $this->_response404();
       return;
@@ -925,6 +929,8 @@ class ImageProxy_Http
     }
     else//前のリクエストが404だった
     {
+      $image->getData()->delete();
+      $image->delete();
       $this->_response404();
     }
   }
@@ -932,9 +938,9 @@ class ImageProxy_Http
   private function _response(ImageProxy_Image $image)
   {
     $data = $image->getBody();
-    if($data === null)
+    if($data === null || !strlen($data))
     {
-      $image->_data->delete();
+      $image->getData()->delete();
       $image->delete();
       $this->_response404();
       return;
