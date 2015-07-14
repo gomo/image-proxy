@@ -513,6 +513,17 @@ class ImageProxy_Image
     return $default;
   }
 
+  public function getSizeFromLocal()
+  {
+    if($this->_is_debug) ImageProxy_Http::message('get size from local');
+    if(!file_exists($this->_save_path))
+    {
+      throw new Exception('Missing file '.$this->_save_path);
+    }
+    $stat = stat($this->_save_path);
+    return $stat[7];
+  }
+
   private function _createCurlHandler()
   {
     $ch = curl_init();
