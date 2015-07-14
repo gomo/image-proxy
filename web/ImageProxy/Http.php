@@ -134,17 +134,10 @@ class ImageProxy_Http
       'body' => null,
     );
 
-    //ローカルの画像が存在するが0byteなら
-    if(file_exists($image->getDataPath()) && !strlen($image->getBody()))
+    //キャッシュファイルが異常なら
+    if($image->isIllegalState())
     {
-      $image->getData()->delete();
-      $image->delete();
-    }
-    //データファイルではファイルサイズが真なのに、ローカルファイルが無い
-    if($image->getData()->get('Content-Length') &&
-      (!file_exists($image->getDataPath()) || !strlen($image->getBody()))
-    )
-    {
+      //削除して処理を継続
       $image->getData()->delete();
       $image->delete();
     }

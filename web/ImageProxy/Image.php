@@ -524,6 +524,25 @@ class ImageProxy_Image
     return $stat[7];
   }
 
+  public function isIllegalState()
+  {
+    //ローカルの画像が存在するが0byteなら
+    if(file_exists($this->getDataPath()) && !$this->getSizeFromLocal())
+    {
+      return TRUE;
+    }
+    //データファイルではファイルサイズが真なのに、ローカルファイルが無い
+    if(
+      $this->getData()->get('Content-Length')
+      &&
+      (!file_exists($this->getDataPath()) || !$this->getSizeFromLocal())
+    )
+    {
+      return TRUE;
+    }
+    return FALSE;
+  }
+
   private function _createCurlHandler()
   {
     $ch = curl_init();
