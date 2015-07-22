@@ -89,17 +89,38 @@ class ImageProxy extends PHPUnit_Framework_TestCase
     $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/non-exists.jpg');
     $http->execute($image);
     $this->assertSame('404 Not Found', $this->_getHeader($http, 'Status'));
-    $this->assertSame(1, $image->getRequestCount());
+    $this->assertSame(0, $image->getRequestCount());
     $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //存在しない画像キャッシュから（少し経過）
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/non-exists.jpg');
+    $image->changeModifiedTime(time() - 2000);
+    $http->execute($image);
+    $this->assertSame('404 Not Found', $this->_getHeader($http, 'Status'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(0, $image->getHeaderRequestCount());
+    clearstatcache();
+
+    //存在しない画像 check_interval_sec経過後
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/non-exists.jpg');
+    $image->changeModifiedTime(time() - 3700);
+    $http->execute($image);
+    $this->assertSame('404 Not Found', $this->_getHeader($http, 'Status'));
+    $this->assertSame(0, $image->getRequestCount());
+    $this->assertSame(1, $image->getHeaderRequestCount());
     clearstatcache();
 
     //non-exists.jpgをサーバーに出現させる
     $resp = file_get_contents('http://test.www.sincere-co.com/image-proxy/util.php?func=nonExists');
+    $this->assertSame('0', $resp);
+    $image = $http->createImage('/img/test.www.sincere-co.com/image-proxy/img/non-exists.jpg');
+    $image->changeModifiedTime(time() - 3700);
     $http->execute($image);
     $this->assertSame('image/jpeg', $this->_getHeader($http, 'Content-Type'));
     $this->assertSame('106228', $this->_getHeader($http, 'Content-Length'));
-    $this->assertSame(2, $image->getRequestCount());
-    $this->assertSame(0, $image->getHeaderRequestCount());
+    $this->assertSame(1, $image->getRequestCount());
+    $this->assertSame(1, $image->getHeaderRequestCount());//一度ヘッダーのみ問い合わせて更新を検出してるので
   }
 
   public function testExecuteJpegImage()
