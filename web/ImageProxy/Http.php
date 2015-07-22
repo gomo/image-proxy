@@ -158,7 +158,6 @@ class ImageProxy_Http
 
       if(!$image->existsOnRemote())
       {
-        $image->getData()->delete();
         $image->delete();//必要ないかもしれないけど念のため消しておく
         $this->_response404();
         return;

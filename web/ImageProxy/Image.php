@@ -526,6 +526,16 @@ class ImageProxy_Image
 
   public function isIllegalState()
   {
+    //データファイル上0byteなら（リモート画像が404だったと想定）
+    if(file_exists($this->getDataPath()) && !$this->getData()->get('Content-Length'))
+    {
+      return FALSE;
+    }
+    //データファイルが存在するがローカル画像が無いなら
+    if(file_exists($this->getDataPath()) && !file_exists($this->_save_path))
+    {
+      return FALSE;
+    }
     //ローカルの画像が存在するが0byteなら
     if(file_exists($this->getDataPath()) && !$this->getSizeFromLocal())
     {
