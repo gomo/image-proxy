@@ -329,9 +329,8 @@ class ImageProxy_Image
       //拡大はしない
       if($raw_width < $this->_width || $raw_height < $this->_height)
       {
-        if($this->_is_debug) ImageProxy_Http::message('Illgal size specified. '.$this->_width.'/'.$this->_height);
-        //bodyをnullにすると強制的に404になります。
-        $this->_body = null;
+        //拡大しないため、元ファイルのままで、拡大後のパスにファイルをコピーする
+        file_put_contents($this->_save_path, $this->_body);
         return;
       }
 
