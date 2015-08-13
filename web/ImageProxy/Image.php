@@ -314,7 +314,7 @@ class ImageProxy_Image
     {
       ImageProxy_Http::mkdir(dirname($this->_org_save_path));
       file_put_contents($this->_org_save_path, $this->_body);
-      chmod($this->_org_save_path, 0777);
+      chmod($this->_org_save_path, 0666);
 
       if($this->_losslessCompress($this->_org_save_path))
       {
@@ -331,30 +331,32 @@ class ImageProxy_Image
       {
         //拡大しないため、元ファイルのままで、拡大後のパスにファイルをコピーする
         file_put_contents($this->_save_path, $this->_body);
-        return;
-      }
-
-      if(!$this->_width)
-      {
-        $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
-      }
-      else if(!$this->_height)
-      {
-        $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
-      }
-
-      if(preg_match('/\.gif$/u', $this->_save_path))
-      {
-        $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
       }
       else
       {
-        $command = 'convert %s -resize %dx%d %s';
+        if(!$this->_width)
+        {
+          $this->_width = (int) ($raw_width * ($this->_height / $raw_height));
+        }
+        else if(!$this->_height)
+        {
+          $this->_height = (int) ($raw_height * ($raw_width / $this->_width));
+        }
+
+        if(preg_match('/\.gif$/u', $this->_save_path))
+        {
+          $command = 'convert %s -coalesce -resize %dx%d -deconstruct %s';
+        }
+        else
+        {
+          $command = 'convert %s -resize %dx%d %s';
+        }
+
+        exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
+        $need_reload = true;
       }
 
-      exec(sprintf($command, $this->_org_save_path, $this->_width, $this->_height, $this->_save_path));
-      chmod($this->_save_path, 0777);
-      $need_reload = true;
+      chmod($this->_save_path, 0666);
     }
 
     if($this->_losslessCompress($this->_save_path))
