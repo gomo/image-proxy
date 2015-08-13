@@ -1,8 +1,8 @@
 <?php
-require_once __DIR__ . '/ImageProxy/Image.php';
-require_once __DIR__ . '/ImageProxy/Http.php';
-require_once __DIR__ . '/ImageProxy/ExceptionHandler.php';
-require_once __DIR__ . '/ImageProxy/Image/Data.php';
+require_once dirname(__FILE__) . '/ImageProxy/Image.php';
+require_once dirname(__FILE__) . '/ImageProxy/Http.php';
+require_once dirname(__FILE__) . '/ImageProxy/ExceptionHandler.php';
+require_once dirname(__FILE__) . '/ImageProxy/Image/Data.php';
 
 set_exception_handler('ImageProxy_ExceptionHandler');
 
