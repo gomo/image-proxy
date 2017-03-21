@@ -16,7 +16,6 @@ if(isset($_POST["path"]))
         if(strpos($file, $path_info["basename"]) !== false)
         {
           unlink($path_info["dirname"] . "/" . $file);
-          echo $path_info["dirname"] . "/" . $file;
         }
       }      
       $response = "DONE";
