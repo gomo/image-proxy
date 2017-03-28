@@ -1,30 +1,39 @@
 <?php
 
-if(isset($_POST["path"]))
+$path = isset($_POST["path"]) ?  $_POST["path"] : "";
+if($path)
 {
   include dirname($_SERVER['SCRIPT_FILENAME']).'/config.php';
-  $file_path =  "./" . $settings["img_dir"] . "/" . $_POST["path"];
   
-  if(file_exists($file_path))
-  {   
-    $path_info = pathinfo($file_path);
-    try 
+  try 
+  {
+    if(strpos($path, "..") !== false)
     {
-      //リサイズされた画像を含めファイル名が含まれているものを全て削除
-      foreach (scandir($path_info["dirname"]) as $file)
-      {
-        if(strpos($file, $path_info["basename"]) !== false)
-        {
-          unlink($path_info["dirname"] . "/" . $file);
-        }
-      }      
-      $response = "DONE";
-    } catch (Exception $ex) {
-      $response = "Failed ". $ex->getMessage();  
+      throw new Exception("file_path is invalid");      
     }
-  }else {
-    $response = "File Not Exists " . $file_path;
+    
+    $file_path =  "./" . $settings["img_dir"] . "/" . $path;
+    if(file_exists($file_path))
+    {   
+      $path_info = pathinfo($file_path);
+        foreach (scandir($path_info["dirname"]) as $file)
+        {
+          if(strpos($file, $path_info["basename"]) !== false)
+          {
+            unlink($path_info["dirname"] . "/" . $file);
+          }
+        }
+        $response = "DONE";
+    }else {
+      $response = "File Not Exists " . $path;
+    }
+  } catch (Exception $ex) {
+    $response = "Failed to delete" . $path;
   }
-  
-  echo $response;
 }
+else
+{
+  $response = "Missing File Path";  
+}
+
+echo $response;
