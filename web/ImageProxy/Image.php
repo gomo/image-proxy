@@ -242,6 +242,7 @@ class ImageProxy_Image
 
   public function needsUpdate()
   {
+
     if($this->_data->isUpdated('Content-Length'))
     {
       return true;
@@ -448,19 +449,6 @@ class ImageProxy_Image
       }
     }
 
-    //dataに保存するヘッダー
-    foreach(array('Last-Modified', 'Content-Length', 'Content-Type') as $header_key)
-    {
-      if(isset($headers[$header_key]))
-      {
-        $this->_data->set($header_key, $headers[$header_key]);
-        $this->_origin_data->set($header_key, $headers[$header_key]);
-      }
-    }
-
-    $this->_data->save();
-    $this->_origin_data->save();
-
     $this->_headers = $headers;
 
     //元サーバーが404で画像ファイルがあったら消す。データファイルは残しておく。
@@ -477,16 +465,6 @@ class ImageProxy_Image
       foreach($headers as $key => $value)
       {
         ImageProxy_Http::message('Header %s: %s', $key, $value);
-      }
-
-      foreach($this->_data->getUpdatedValues() as $key)
-      {
-        ImageProxy_Http::message('Data updated %s', $key);
-      }
-
-      foreach($this->_origin_data->getUpdatedValues() as $key)
-      {
-        ImageProxy_Http::message('Origin Data updated %s', $key);
       }
     }
   }
