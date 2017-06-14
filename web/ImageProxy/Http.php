@@ -185,8 +185,6 @@ class ImageProxy_Http
     
     $lifetime = time() - filemtime($image->getSavePath());
 
-    touch($image->getSavePath());
-
     //時間が経っていなかった
     if($this->_getSetting('is_nocache') == false && $lifetime < $check_interval_sec)
     {
@@ -197,6 +195,8 @@ class ImageProxy_Http
 
     //この時点でローカルにキャッシュファイルがあって、なおかつチェックが必要な状態。
     $image->loadOnlyHeader();
+
+    touch($image->getSavePath());
 
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
