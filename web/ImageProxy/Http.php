@@ -138,12 +138,11 @@ class ImageProxy_Http
     if($image->isIllegalState())
     {
       //削除して処理を継続
-      $image->getData()->delete();
       $image->delete();
     }
 
     //ローカルに画像が存在しなかった
-    if(!file_exists($image->getDataPath()))
+    if(!file_exists($image->getSavePath()))
     {
       //元画像が404だとこの時点で元画像データはあるが、元画像ファイルはないので、ここでチェックするのは`getOriginPath`
       if($this->_getSetting('is_nocache') == false && file_exists($image->getOriginSavePath()))
@@ -183,9 +182,10 @@ class ImageProxy_Http
       $this->_responseLocal($image);
       return;
     }
+    
+    $lifetime = time() - filemtime($image->getSavePath());
 
     //時間が経っていなかった
-    $lifetime = time() - filemtime($image->getDataPath());
     if($this->_getSetting('is_nocache') == false && $lifetime < $check_interval_sec)
     {
       if($this->_getSetting('is_debug')) ImageProxy_Http::message('Load image from local server because less than check_interval_sec.');
@@ -193,25 +193,21 @@ class ImageProxy_Http
       return;
     }
 
-
-
     //この時点でローカルにキャッシュファイルがあって、なおかつチェックが必要な状態。
-
     $image->loadOnlyHeader();
-    //ヘッダーをチェックしたのでmtimeを更新。
-    touch($image->getDataPath());
+
+    touch($image->getSavePath());
 
     //リモートの元画像が無かった
     if(!$image->existsOnRemote())
     {
-      $image->getData()->delete();
       $image->delete();
       $this->_response404();
       return;
     }
 
-    //元画像が更新されていた、あるいは、前回のリクエストに失敗して画像が無かった
-    if($image->needsUpdate() || !file_exists($image->getSavePath()))
+    //前回のリクエストに失敗して画像が無かった。
+    if(!file_exists($image->getSavePath()))
     {
       $image->delete();
       $image->loadFromRemote();
@@ -241,7 +237,6 @@ class ImageProxy_Http
     }
     else//前のリクエストが404だった
     {
-      $image->getData()->delete();
       $image->delete();
       $this->_response404();
     }
@@ -252,7 +247,6 @@ class ImageProxy_Http
     $data = $image->getBody();
     if($data === null || !strlen($data))
     {
-      $image->getData()->delete();
       $image->delete();
       $this->_response404();
       return;
